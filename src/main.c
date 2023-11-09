@@ -7,17 +7,39 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_chip_info.h"
+#include "esp_err.h"
 #include "esp_flash.h"
 #include "nvs_flash.h"
 #include "esp_log.h"
+#include "driver/gpio.h"
+#include "driver/sdmmc_types.h"
+#include "rc522.h"
 
 // Local includes
 
 #include "globals.h"
 #include "wifi.h"
+
+#if defined USE_RC522 == 1
 #include "rfid-rc522.h"
+#endif
+
+#if defined USE_ESP32CAM == 1 // rfid reader and camera both use SPI protocol, so excluding camera when using rfid reader
+#include "camera.h"
+#define ESP32_CAM_LED_BUILTIN_PIN 33 // This LED works with inverted logic, so you send a LOW signal to turn it on and a HIGH signal to turn it off.
+#define ESP32_CAM_CAMERA_FLASH_PIN 4
+#endif
+
+#include "sd-card.h"
+#include "events.h"
 
 // --------------
+
+#define LED_BUILTIN_PIN 2
+#define CAMERA_FEED_TASK_PRIORITY (UBaseType_t)10
+#define REGISTER_PHOTO_TASK_PRIORITY (UBaseType_t)11 // less priority than pushing the video to screen
+
+ESP_EVENT_DEFINE_BASE(RFID_A_S_EVENTS);
 
 void initialize_nvs(void)
 {
@@ -32,8 +54,6 @@ void initialize_nvs(void)
 
 void app_main(void)
 {
-    printf("Hello world!\n");
-
     /* Print chip information */
     esp_chip_info_t chip_info;
     uint32_t flash_size;
@@ -66,12 +86,105 @@ void app_main(void)
     ESP_LOGI(TAG, "ESP_WIFI_MODE_STA\n");
     wifi_init_sta();
 
-    // initialize rfid stuffs
-    initialize_rc522();
+    // set some delay to clear up before initializing camera (if high power is consumed)
+    // vTaskDelay(1000/portTICK_PERIOD_MS);
 
-    // on valid rfid scan
-    // take photo
-    // temporarily store the photo somewhere
-    // if internet is available -> upload
-    // else store it in permanent storage
+    sdmmc_card_t *card = NULL;
+
+    rc522_handle_t scanner = NULL;
+
+    /** Not using when using rc522 as both use SPI protocol */
+    if (USE_ESP32CAM == 1)
+    {
+
+        // initializing the camera
+        camera_init();
+
+        init_sd_card(&card);
+
+        // starting the camera feed task
+        xTaskCreate(start_camera_feed,
+                    "Camera_Feed_Task",
+                    4096,
+                    card,
+                    CAMERA_FEED_TASK_PRIORITY,
+                    &camera_feed_task_handle);
+    }
+
+    if (USE_RC522 == 1)
+    {
+        // initialize rfid stuffs
+        initialize_rc522(&scanner);
+    }
+
+    // blinking led every 500ms
+    gpio_set_direction(LED_BUILTIN_PIN, GPIO_MODE_OUTPUT);
+#if defined USE_ESP32CAM == 1
+    if (USE_ESP32CAM == 1)
+    {
+        gpio_set_direction(ESP32_CAM_LED_BUILTIN_PIN, GPIO_MODE_OUTPUT);
+        gpio_set_direction(ESP32_CAM_CAMERA_FLASH_PIN, GPIO_MODE_OUTPUT);
+    }
+#endif
+
+    uint count = 0;
+    while (1) // debug
+    {
+        count += 1;
+        vTaskDelay(500 / portTICK_PERIOD_MS);
+        gpio_set_level(LED_BUILTIN_PIN, 1);
+        vTaskDelay(500 / portTICK_PERIOD_MS);
+        gpio_set_level(LED_BUILTIN_PIN, 0);
+
+        // mock rfid scan
+        if (USE_ESP32CAM == 1)
+        {
+            rc522_tag_t tag = {
+                .serial_number = 911101686122, // a mock serial number
+            };
+
+            rfid_a_s_event_data_t _data = {
+                .tag = &tag};
+
+            photo_taken_args_t photo_taken_args = {
+                .sdcard = card,
+            };
+
+            rfid_a_s_event_data_t rfid_a_s_event_data = {
+                .fb = NULL,
+                .tag = &tag,
+            };
+
+            rfid_scanned_args_t rfid_scanned_args = {
+                .rc522 = scanner,
+            };
+
+            take_photo_args_t take_photo_args = {
+                .photo_taken_args = &photo_taken_args,
+                .rfid_a_s_event_data = &rfid_a_s_event_data,
+                .rfid_scanned_args = &rfid_scanned_args,
+            };
+
+            if (count % 50 == 0)
+            {
+                ESP_LOGI(TAG, "Mocking a rfid scan");
+                esp_event_post(RFID_A_S_EVENTS, RFID_A_S_RFID_SCANNED, &_data, sizeof(rfid_a_s_event_data_t), portMAX_DELAY);
+                xTaskCreate(register_photo_task,
+                            "Register_Photo_Task",
+                            4096,
+                            &take_photo_args,
+                            CAMERA_FEED_TASK_PRIORITY,
+                            &camera_feed_task_handle);
+            }
+        }
+
+        if (USE_ESP32CAM == 1)
+        {
+            // for esp32-cam
+            vTaskDelay(500 / portTICK_PERIOD_MS);
+            gpio_set_level(ESP32_CAM_LED_BUILTIN_PIN, 0); // on
+            vTaskDelay(500 / portTICK_PERIOD_MS);
+            gpio_set_level(ESP32_CAM_LED_BUILTIN_PIN, 1); // off
+        }
+    }
 }

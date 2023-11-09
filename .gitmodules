@@ -1,3 +1,7 @@
 [submodule "components/esp-idf-rc522"]
 	path = components/esp-idf-rc522
 	url = git@github.com:abobija/esp-idf-rc522.git
+[submodule "components/esp32-camera"]
+	path = components/esp32-camera
+	url = https://github.com/espressif/esp32-camera.git
+	branch = master
