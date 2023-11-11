@@ -155,6 +155,11 @@ void upload_jpeg_task(void *args)
     memcpy(fb, event_data->fb, sizeof(camera_fb_t));
 
     uint64_t serial_number = event_data->tag->serial_number;
+
+    // all the required data are already copied
+    // so freeing the memory used by args
+    free(args);
+
     esp_err_t err;
     size_t fb_len; // to store the exact jpeg length
     int64_t fr_start;
@@ -270,7 +275,7 @@ void upload_jpeg_task(void *args)
                 // the length of frame buffer in hex
                 hlen = snprintf(chunk_len_hex, sizeof(chunk_len_hex), "%X", fb_len);
                 esp_http_client_write(client, strcat(chunk_len_hex, "\r\n"), hlen + 2); // assuming hlen < 8
-                if (-1 == esp_http_client_write(client, (char *)fb, fb_len))
+                if (-1 == esp_http_client_write(client, (char *)fb->buf, fb_len))
                 { // the frame buffer
                     ESP_LOGE(TAG, "Couldn't write frame buffer.");
                 }

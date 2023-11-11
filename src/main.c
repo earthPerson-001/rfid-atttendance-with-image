@@ -100,6 +100,7 @@ void app_main(void)
 
         init_sd_card(&card);
 
+        // the reference to the card should be valid until it is deinitialized
         // starting the camera feed task
         xTaskCreate(start_camera_feed,
                     "Camera_Feed_Task",

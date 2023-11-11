@@ -165,11 +165,9 @@ static void on_ping_success(esp_ping_handle_t hdl, void *args)
     {
         ESP_LOGE(TAG, "Couldn't delete ping session. (error : %s)", esp_err_to_name(ret));
     }
-    else // after all ping ends
-    {
-        // freeing the memory
-        free(args);
-    }
+
+    // the memory freeing of `*args` must be handled inside of the task
+    // as the lifetime of task's args need to be valid inside of task
 
     // one success is enough
     xTaskCreate(
@@ -204,11 +202,8 @@ static void on_ping_timeout(esp_ping_handle_t hdl, void *args)
         {
             ESP_LOGE(TAG, "Couldn't delete ping session. (error : %s)", esp_err_to_name(ret));
         }
-        else // after all ping ends
-        {
-            // freeing the memory
-            free(args);
-        }
+        // keeping a copy for freeing the callback args later on
+        esp_err_t delete_ret = ret;
 
         // if the control reaches this part, the tag and frame buffer should never be null
         // todo: remove at production
@@ -222,6 +217,14 @@ static void on_ping_timeout(esp_ping_handle_t hdl, void *args)
         // save the frame buffer to the file path
         sdmmc_card_t *card = rfid_a_s_data->card;
         ESP_LOGI(TAG, "saving to sdcard because of unavailability of internet access");
+
+
+        // free the callback args if the ping sessions was sucessfully deleted
+        if (ESP_OK == delete_ret) // after all ping ends
+        {
+            // freeing the memory
+            free(args);
+        }
     }
 }
 
