@@ -21,14 +21,18 @@
 
 //---------------
 
-#define PING_COUNT 8
-#define PING_TARGET "www.espressif.com"
-
 TaskHandle_t camera_feed_task_handle = NULL;
 EventGroupHandle_t eth_event_group;
+QueueHandle_t rfid_photo_queue;
 
-// function definition
-void initialize_ping(photo_taken_args_t *photo_taken_args, rfid_a_s_event_data_t *rfid_a_s_data);
+bool photo_being_taken = pdFALSE;
+rc522_tag_t *current_tag = NULL;
+
+#define PING_SUCCESS_BIT BIT0
+#define PING_FAILED_BIT BIT1
+
+// function declaration
+void initialize_and_start_ping(rfid_a_s_event_data_t *rfid_a_s_data);
 
 static camera_config_t camera_config = {
     .pin_pwdn = CAM_PIN_PWDN,
@@ -74,71 +78,49 @@ esp_err_t camera_init()
     return ESP_OK;
 }
 
-esp_err_t camera_capture(rc522_tag_t *rfid_tag, sdmmc_card_t *card)
+esp_err_t camera_capture(rc522_tag_t *rfid_tag, sdmmc_card_t *card, camera_fb_t *fb)
 {
-    // acquire a frame
-    camera_fb_t *fb = esp_camera_fb_get();
+
     if (!fb)
     {
-        ESP_LOGE(TAG, "Camera Capture Failed");
+        ESP_LOGE(TAG, "The frame buffer is emtpy");
         return ESP_FAIL;
     }
 
     rfid_a_s_event_data_t event_data = {
         .fb = fb,
-        .tag = rfid_tag};
-
-    // publish the event only
-    esp_event_post(RFID_A_S_EVENTS, RFID_A_S_PHOTO_TAKEN, &event_data, sizeof(rfid_a_s_event_data_t), portMAX_DELAY);
-
-    photo_taken_args_t photo_taken_args = {
-        .sdcard = card,
-    };
+        .tag = rfid_tag,
+        .card = card};
 
     // since long running tasks cannot be handled in event handlers
     // directly calling the function
-    initialize_ping(&photo_taken_args, &event_data);
+    initialize_and_start_ping(&event_data);
 
-    // return the frame buffer back to the driver for reuse
-    esp_camera_fb_return(fb);
     return ESP_OK;
-}
-
-void take_photo(rfid_scanned_args_t *rfid_scanned_args, rfid_a_s_event_data_t *rfid_a_s_event_data, photo_taken_args_t *photo_taken_args)
-{
-    esp_err_t ret;
-
-    // pause the rfid scanning during this period
-    if (ESP_OK != (ret = rc522_pause(rfid_scanned_args->rc522)))
-    {
-        ESP_LOGE(TAG, "Couldn't pause rfid scanning. %s", esp_err_to_name(ret));
-    }
-
-    ESP_LOGI(TAG, "Starting countdown for taking photo.");
-
-    // countdown from 10 (10 seconds)
-    for (uint8_t i = 10; i > 0; i--)
-    {
-        // vTaskDelay cannot be used inside of an event handler so, requries another method for countdown
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
-        // display the current countdown
-        ESP_LOGI(TAG, "%u", i);
-    }
-
-    // sending the rid tag too, for keeping the identity in image
-    camera_capture(rfid_a_s_event_data->tag, photo_taken_args->sdcard);
-
-    rc522_resume(rfid_scanned_args->rc522);
 }
 
 void register_photo_task(void *args)
 {
-    take_photo_args_t *take_photo_args = (take_photo_args_t *)args;
-    rfid_scanned_args_t *rfid_scanned_args = take_photo_args->rfid_scanned_args;
-    rfid_a_s_event_data_t *rfid_a_s_event_data = take_photo_args->rfid_a_s_event_data;
-    photo_taken_args_t *photo_taken_args = take_photo_args->photo_taken_args;
+    rfid_a_s_event_data_t *queue_data = malloc(sizeof(rfid_a_s_event_data_t));
 
-    take_photo(rfid_scanned_args, rfid_a_s_event_data, photo_taken_args);
+    while (1)
+    {
+        // block on queue
+
+        // it doesn't completely block, but okay for now
+        if (pdTRUE == xQueueReceive(rfid_photo_queue, (void *)queue_data, 600000 / portTICK_PERIOD_MS))
+        {
+            rfid_a_s_event_data_t *rfid_a_s_event_data = (rfid_a_s_event_data_t *)queue_data;
+
+            // take photo
+            // sending the rid tag too, for keeping the identity in image
+            camera_capture(rfid_a_s_event_data->tag, rfid_a_s_event_data->card, rfid_a_s_event_data->fb);
+        }
+    }
+
+    // if in case the flow returns here
+    free(queue_data);
+    vTaskDelete(NULL); 
 }
 
 static esp_err_t write_to_file_path(const char *path, char *data)
@@ -159,11 +141,7 @@ static esp_err_t write_to_file_path(const char *path, char *data)
 
 static void on_ping_success(esp_ping_handle_t hdl, void *args)
 {
-    ping_callbacks_args_t *callback_args = (ping_callbacks_args_t *)args;
-    camera_fb_t *fb = callback_args->rfid_a_s_event_data->fb;
-
-    // upload to server
-    upload_jpeg(fb, callback_args->rfid_a_s_event_data->tag);
+    rfid_a_s_event_data_t *rfid_a_s_data = (rfid_a_s_event_data_t *)args;
 
     uint8_t ttl;
     uint16_t seqno;
@@ -174,34 +152,77 @@ static void on_ping_success(esp_ping_handle_t hdl, void *args)
     esp_ping_get_profile(hdl, ESP_PING_PROF_IPADDR, &target_addr, sizeof(target_addr));
     esp_ping_get_profile(hdl, ESP_PING_PROF_SIZE, &recv_len, sizeof(recv_len));
     esp_ping_get_profile(hdl, ESP_PING_PROF_TIMEGAP, &elapsed_time, sizeof(elapsed_time));
-    printf("%lu bytes from %s icmp_seq=%d ttl=%d time=%lu ms\n",
-           recv_len, inet_ntoa(target_addr.u_addr.ip4), seqno, ttl, elapsed_time);
+    ESP_LOGI(TAG, "%lu bytes from %s icmp_seq=%d ttl=%d time=%lu ms\n",
+             recv_len, inet_ntoa(target_addr.u_addr.ip4), seqno, ttl, elapsed_time);
+
+    // stopping the ping session and deleting it
+    esp_err_t ret;
+    if (ESP_OK != (ret = esp_ping_stop(hdl)))
+    {
+        ESP_LOGE(TAG, "Couldn't stop ping session. (error : %s)", esp_err_to_name(ret));
+    }
+    if (ESP_OK != (ret = esp_ping_delete_session(hdl)))
+    {
+        ESP_LOGE(TAG, "Couldn't delete ping session. (error : %s)", esp_err_to_name(ret));
+    }
+    else // after all ping ends
+    {
+        // freeing the memory
+        free(args);
+    }
+
+    // one success is enough
+    xTaskCreate(
+        upload_jpeg_task,
+        "Upload_JPEG",
+        TASK_UPLOAD_JPEG_STACK_SIZE,
+        rfid_a_s_data,
+        UPLOAD_JPEG_TASK_CORE_AFFINITY,
+        NULL);
 }
 
 static void on_ping_timeout(esp_ping_handle_t hdl, void *args)
 {
-    ping_callbacks_args_t *callback_args = (ping_callbacks_args_t *)args;
-    camera_fb_t *fb = callback_args->rfid_a_s_event_data->fb;
-
-    // save to sdcard
-    rc522_tag_t *tag = callback_args->rfid_a_s_event_data->tag;
-
-    // if the control reaches this part, the tag and frame buffer should never be null
-    // todo: remove at production
-    assert(tag != NULL);
-    assert(fb != NULL);
-
-    // create filename combining the rfid_tag and current timestamp
-
-    // obtain file path
-
-    // save the frame buffer to the file path
+    rfid_a_s_event_data_t *rfid_a_s_data = (rfid_a_s_event_data_t *)args;
 
     uint16_t seqno;
     ip_addr_t target_addr;
     esp_ping_get_profile(hdl, ESP_PING_PROF_SEQNO, &seqno, sizeof(seqno));
     esp_ping_get_profile(hdl, ESP_PING_PROF_IPADDR, &target_addr, sizeof(target_addr));
-    printf("From %s icmp_seq=%d timeout\n", inet_ntoa(target_addr.u_addr.ip4), seqno);
+    ESP_LOGI(TAG, "From %s icmp_seq=%d timeout\n", inet_ntoa(target_addr.u_addr.ip4), seqno);
+
+    // if the last sequence fails
+    if (seqno == PING_COUNT)
+    {
+        // stopping the ping session and deleting it
+        esp_err_t ret;
+        if (ESP_OK != (ret = esp_ping_stop(hdl)))
+        {
+            ESP_LOGE(TAG, "Couldn't stop ping session. (error : %s)", esp_err_to_name(ret));
+        }
+        if (ESP_OK != (ret = esp_ping_delete_session(hdl)))
+        {
+            ESP_LOGE(TAG, "Couldn't delete ping session. (error : %s)", esp_err_to_name(ret));
+        }
+        else // after all ping ends
+        {
+            // freeing the memory
+            free(args);
+        }
+
+        // if the control reaches this part, the tag and frame buffer should never be null
+        // todo: remove at production
+        assert(rfid_a_s_data->tag != NULL);
+        assert(rfid_a_s_data->fb != NULL);
+
+        // create filename combining the rfid_tag and current timestamp
+
+        // obtain file path
+
+        // save the frame buffer to the file path
+        sdmmc_card_t *card = rfid_a_s_data->card;
+        ESP_LOGI(TAG, "saving to sdcard because of unavailability of internet access");
+    }
 }
 
 static void on_ping_end(esp_ping_handle_t hdl, void *args)
@@ -213,10 +234,12 @@ static void on_ping_end(esp_ping_handle_t hdl, void *args)
     esp_ping_get_profile(hdl, ESP_PING_PROF_REQUEST, &transmitted, sizeof(transmitted));
     esp_ping_get_profile(hdl, ESP_PING_PROF_REPLY, &received, sizeof(received));
     esp_ping_get_profile(hdl, ESP_PING_PROF_DURATION, &total_time_ms, sizeof(total_time_ms));
-    printf("%lu packets transmitted, %lu received, time %lums\n", transmitted, received, total_time_ms);
+    ESP_LOGI(TAG, "%lu packets transmitted, %lu received, time %lums\n", transmitted, received, total_time_ms);
+
+    // the image should already have been uploaded if there was a success
 }
 
-void initialize_ping(photo_taken_args_t *photo_taken_args, rfid_a_s_event_data_t *rfid_a_s_data)
+void initialize_and_start_ping(rfid_a_s_event_data_t *rfid_a_s_data)
 {
     /* convert URL to IP address */
     ip_addr_t target_addr;
@@ -239,39 +262,110 @@ void initialize_ping(photo_taken_args_t *photo_taken_args, rfid_a_s_event_data_t
     cbs.on_ping_timeout = on_ping_timeout;
     cbs.on_ping_end = on_ping_end;
 
-    ping_callbacks_args_t ping_callbacks_args = {
-        .event_group_handle = eth_event_group,
-        .photo_taken_args = photo_taken_args,
-        .rfid_a_s_event_data = rfid_a_s_data,
-    };
-
-    cbs.cb_args = &ping_callbacks_args;
+    rfid_a_s_event_data_t *callback_args = malloc(sizeof(rfid_a_s_event_data_t));
+    memcpy(callback_args, rfid_a_s_data, sizeof(*rfid_a_s_data));
+    cbs.cb_args = (void *)callback_args;
 
     esp_ping_handle_t ping;
-    ESP_LOGI(TAG, "Pinging  " PING_TARGET);
-    esp_ping_new_session(&ping_config, &cbs, &ping);
+    esp_err_t ret = ESP_OK;
+    if (ESP_OK != (ret = esp_ping_new_session(&ping_config, &cbs, &ping)))
+    {
+        ESP_LOGI(TAG, "Pinging " PING_TARGET " failed");
+    }
+    else
+    {
+        if (ESP_OK == (ret = esp_ping_start(ping)))
+        {
+            ESP_LOGI(TAG, "Pinging  " PING_TARGET);
+        }
+        else
+        {
+            ESP_LOGE(TAG, "Couldn't start the ping session to ping " PING_TARGET);
+        }
+    }
+}
+
+void handle_tag_scanned(void *ptr, esp_event_base_t base, int32_t event_id, void *event_data)
+{
+    rfid_a_s_event_data_t *evt_data = (rfid_a_s_event_data_t *)event_data;
+
+    switch (event_id)
+    {
+    case RFID_A_S_RFID_SCANNED:
+        photo_being_taken = pdTRUE;
+        current_tag = evt_data->tag;
+        break;
+    default:
+        break;
+    }
 }
 
 void start_camera_feed(void *card)
 {
+    esp_err_t ret = ESP_OK;
+
     card = (sdmmc_card_t *)card;
 
     if (!card)
         ESP_LOGE(TAG, "SdCard isn't initialized so cannot save images.");
+
+    rfid_photo_queue = xQueueCreate(RFID_PHOTO_QUEUE_SIZE, sizeof(rfid_a_s_event_data_t));
+
+    ret = esp_event_handler_register(RFID_A_S_EVENTS, RFID_A_S_RFID_SCANNED, handle_tag_scanned, NULL);
+
+    if (ESP_OK != ret)
+    {
+        ESP_LOGE(TAG, "Couldn't register event handler (error : %s)", esp_err_to_name(ret));
+    }
+
+    // start all image upload/save as a new task
+    xTaskCreate(register_photo_task,
+                "Register_Photo_Task",
+                4096,
+                NULL,
+                REGISTER_PHOTO_TASK_PRIORITY,
+                &camera_feed_task_handle);
 
     while (1)
     {
         // get the current frame buffer
         camera_fb_t *fb = esp_camera_fb_get();
 
-        esp_camera_fb_return(fb);
+        if (photo_being_taken == pdTRUE && fb != NULL && current_tag != NULL)
+        {
+            /** Might require handling of case when countdown is going on*/
 
-        /** Might require handling of case when countdown is going on*/
+            rfid_a_s_event_data_t queue_data = {
+                .fb = fb,
+                .tag = current_tag,
+                .card = card,
+            };
+            // logging the captured frame size
+            ESP_LOGI(TAG, "The captured frame size is: %zu", fb->len);
+            // publish the event only
+            esp_event_post(RFID_A_S_EVENTS, RFID_A_S_PHOTO_TAKEN, &queue_data, sizeof(rfid_a_s_event_data_t), portMAX_DELAY);
+
+            // send to queue for other task
+            // this will fail if queue is full
+            // we don't care about lost images when the queue is full, as this condition implies some other thing isn't working
+            // i.e. either upload or save functionality
+            // so just logging
+            if (pdTRUE != (ret = xQueueSend(rfid_photo_queue, (void *)&queue_data, 100)))
+            {
+                ESP_LOGE(TAG, "Couldn't send to queue `rfid_photo_queue` (error : %s)", esp_err_to_name(ret));
+            }
+
+            // reset the variables
+            photo_being_taken = pdFALSE;
+            current_tag = NULL;
+        }
+
+        esp_camera_fb_return(fb);
 
         // send to display
         // ...
-
-        // simulate some delay
-        vTaskDelay(50 / portTICK_PERIOD_MS);
     }
+
+    // if somehow it exits
+    vTaskDelete(NULL);
 }

@@ -36,8 +36,6 @@
 // --------------
 
 #define LED_BUILTIN_PIN 2
-#define CAMERA_FEED_TASK_PRIORITY (UBaseType_t)10
-#define REGISTER_PHOTO_TASK_PRIORITY (UBaseType_t)11 // less priority than pushing the video to screen
 
 ESP_EVENT_DEFINE_BASE(RFID_A_S_EVENTS);
 
@@ -146,35 +144,10 @@ void app_main(void)
             rfid_a_s_event_data_t _data = {
                 .tag = &tag};
 
-            photo_taken_args_t photo_taken_args = {
-                .sdcard = card,
-            };
-
-            rfid_a_s_event_data_t rfid_a_s_event_data = {
-                .fb = NULL,
-                .tag = &tag,
-            };
-
-            rfid_scanned_args_t rfid_scanned_args = {
-                .rc522 = scanner,
-            };
-
-            take_photo_args_t take_photo_args = {
-                .photo_taken_args = &photo_taken_args,
-                .rfid_a_s_event_data = &rfid_a_s_event_data,
-                .rfid_scanned_args = &rfid_scanned_args,
-            };
-
-            if (count % 50 == 0)
+            if (count % 10 == 0)
             {
                 ESP_LOGI(TAG, "Mocking a rfid scan");
                 esp_event_post(RFID_A_S_EVENTS, RFID_A_S_RFID_SCANNED, &_data, sizeof(rfid_a_s_event_data_t), portMAX_DELAY);
-                xTaskCreate(register_photo_task,
-                            "Register_Photo_Task",
-                            4096,
-                            &take_photo_args,
-                            CAMERA_FEED_TASK_PRIORITY,
-                            &camera_feed_task_handle);
             }
         }
 

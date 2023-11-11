@@ -9,10 +9,13 @@ extern "C"
     struct camera_fb_t;
     struct rc522_tag_t;
 
+#define UPLOAD_RETRY_COUNT 2 // retries on failure
+
 #ifndef ESP_EVENT_ANY_ID
 #define ESP_EVENT_ANY_ID -1
 #endif
-    esp_err_t upload_jpeg(camera_fb_t *fb, rc522_tag_t *rfid_tag);
+
+    void upload_jpeg_task(void *args);
 
 #ifdef __cplusplus
 }

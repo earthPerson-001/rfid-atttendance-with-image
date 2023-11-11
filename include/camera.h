@@ -30,22 +30,10 @@ extern "C"
 #define CAM_PIN_HREF 23
 #define CAM_PIN_PCLK 22
 
+#define RFID_PHOTO_QUEUE_SIZE 10
+
     extern TaskHandle_t camera_feed_task_handle;
     extern rc522_handle_t scanner;
-
-    typedef struct ping_callbacks_args_t
-    {
-        EventGroupHandle_t event_group_handle;
-        photo_taken_args_t *photo_taken_args;
-        rfid_a_s_event_data_t *rfid_a_s_event_data;
-    } ping_callbacks_args_t;
-
-    typedef struct take_photo_args_t
-    {
-        rfid_scanned_args_t *rfid_scanned_args;
-        rfid_a_s_event_data_t *rfid_a_s_event_data;
-        photo_taken_args_t *photo_taken_args;
-    } take_photo_args_t;
 
     esp_err_t camera_init();
 
