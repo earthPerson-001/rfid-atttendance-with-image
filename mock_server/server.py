@@ -1,4 +1,3 @@
-
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import socket
 import numpy as np
@@ -25,14 +24,14 @@ def sanitize_filename(filename: str) -> str:
     :param filename: filename to be sanitized
     :return: sanitized filename
     """
-    chars = ['\\', '/', ':', '*', '?', '"', '<', '>', '|']
+    chars = ["\\", "/", ":", "*", "?", '"', "<", ">", "|"]
 
-    filename = filename.translate({ord(x): '' for x in chars}).strip()
-    name = re.sub(r'\.[^.]+$', '', filename)
-    extension = re.search(r'(\.[^.]+$)', filename)
-    extension = extension.group(1) if extension else ''
+    filename = filename.translate({ord(x): "" for x in chars}).strip()
+    name = re.sub(r"\.[^.]+$", "", filename)
+    extension = re.search(r"(\.[^.]+$)", filename)
+    extension = extension.group(1) if extension else ""
 
-    return filename if name else f'file_{uuid.uuid4().hex}{extension}'
+    return filename if name else f"file_{uuid.uuid4().hex}{extension}"
 
 
 class MyHandler(BaseHTTPRequestHandler):
@@ -49,14 +48,18 @@ class MyHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         self.log_request()
-        rfid_serial_number = int(self.headers.get("rfid-serial-number", 0)) # set rfid to 0 if fail
+        rfid_serial_number = int(
+            self.headers.get("rfid-serial-number", 0)
+        )  # set rfid to 0 if fail
         content_type = self.headers.get("Content-Type").__str__()
         print(content_type)
-        if rfid_serial_number==0:
+        if rfid_serial_number == 0:
             response = 417
             self.log_message(f"Response {response}")
             self.send_response(response)  # expectation failed
-            self.wfile.write(f"Expected key `rfid-serial-number` in the header".encode())
+            self.wfile.write(
+                f"Expected key `rfid-serial-number` in the header".encode()
+            )
 
         # reading only if image/jpeg was received
         elif content_type.find("multipart/form-data") > -1:
@@ -65,7 +68,9 @@ class MyHandler(BaseHTTPRequestHandler):
             self.send_response(response)
             self.end_headers()
             # extract boundary from headers
-            boundary = re.search(f'boundary=([^;]+)', self.headers['Content-Type']).group(1)
+            boundary = re.search(
+                f"boundary=([^;]+)", self.headers["Content-Type"]
+            ).group(1)
 
             if "Content-Length" in self.headers:
                 # read all bytes (headers included)
@@ -73,19 +78,22 @@ class MyHandler(BaseHTTPRequestHandler):
                 # even if you specify how many bytes to read
                 # 'file.read(nbytes).splitlines(True)' does the trick because 'read()' reads 'nbytes' bytes
                 # and 'splitlines(True)' splits the file into lines and retains the newline character
-                data = self.rfile.read(int(self.headers['Content-Length'])).splitlines(True)
+                data = self.rfile.read(int(self.headers["Content-Length"])).splitlines(
+                    True
+                )
             elif "chunked" in self.headers.get("Transfer-Encoding", ""):
                 # the chunk buffer
                 data = "".encode()
                 while True:
-
-                    line = self.rfile.readline().strip() # in the form <length-hex>\r\n
+                    line = self.rfile.readline()
+                    self.log_message(str(line))
+                    line = line.strip().strip()  # in the form <length-hex>\r\n
 
                     # skip if only line endings are provided
                     if len(line) == 0:
                         continue
 
-                    chunk_length = int(line, 16) # in the hexadecimal format
+                    chunk_length = int(line, 16)  # in the hexadecimal format
 
                     if chunk_length != 0:
                         chunk = self.rfile.read(chunk_length)
@@ -93,43 +101,46 @@ class MyHandler(BaseHTTPRequestHandler):
 
                     # Each chunk is followed by an additional empty newline
                     # that we have to consume.
-                    self.rfile.readline()
+                    self.log_message(str(self.rfile.readline()))
 
                     # Finally, a chunk size of 0 is an end indication
                     if chunk_length == 0:
                         break
                 data.splitlines(True)
 
+            self.log_message(f"Received data: \n {data}")
             # find all filenames
             filenames = re.findall(f'{boundary}.+?filename="(.+?)"', str(data))
 
             if not filenames:
-                return False, 'couldn\'t find file name(s).'
+                return False, "couldn't find file name(s)."
 
             filenames = [sanitize_filename(filename) for filename in filenames]
 
             # find all boundary occurrences in data
-            boundary_indices = list((i for i, line in enumerate(data) if re.search(boundary, str(line))))
+            boundary_indices = list(
+                (i for i, line in enumerate(data) if re.search(boundary, str(line)))
+            )
 
             # display images
             for i in range(len(filenames)):
                 # remove file headers
-                file_data = data[(boundary_indices[i] + 4):boundary_indices[i+1]]
+                file_data = data[(boundary_indices[i] + 4) : boundary_indices[i + 1]]
 
                 # join list of bytes into bytestring
-                file_data = b''.join(file_data)
+                file_data = b"".join(file_data)
 
                 self.log_message(f"Trying to decode the image.")
                 np_arr = np.frombuffer(file_data, np.uint8)
                 cv_img = cv2.imdecode(np_arr, 0)
-                    
-                # respond with received file size and serial number 
+
+                # respond with received file size and serial number
                 self.wfile.write(
                     f"Got image for rfid tag {rfid_serial_number}".encode()
                 )
 
                 display_image_and_wait(cv_img, f"image{rfid_serial_number}")
-            
+
         else:
             response = 415
             self.log_message(f"Response {response}")
