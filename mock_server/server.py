@@ -52,7 +52,6 @@ class MyHandler(BaseHTTPRequestHandler):
             self.headers.get("rfid-serial-number", 0)
         )  # set rfid to 0 if fail
         content_type = self.headers.get("Content-Type").__str__()
-        print(content_type)
         if rfid_serial_number == 0:
             response = 417
             self.log_message(f"Response {response}")
@@ -63,10 +62,6 @@ class MyHandler(BaseHTTPRequestHandler):
 
         # reading only if image/jpeg was received
         elif content_type.find("multipart/form-data") > -1:
-            response = 200
-            self.log_message(f"Response {response}")
-            self.send_response(response)
-            self.end_headers()
             # extract boundary from headers
             boundary = re.search(
                 f"boundary=([^;]+)", self.headers["Content-Type"]
@@ -106,9 +101,9 @@ class MyHandler(BaseHTTPRequestHandler):
                     # Finally, a chunk size of 0 is an end indication
                     if chunk_length == 0:
                         break
-                data.splitlines(True)
+                data = data.splitlines(True)
 
-            self.log_message(f"Received data: \n {data}")
+            # self.log_message("Received data" + str(data))
             # find all filenames
             filenames = re.findall(f'{boundary}.+?filename="(.+?)"', str(data))
 
@@ -119,13 +114,13 @@ class MyHandler(BaseHTTPRequestHandler):
 
             # find all boundary occurrences in data
             boundary_indices = list(
-                (i for i, line in enumerate(data) if re.search(boundary, str(line)))
+                (i for i, _line in enumerate(data) if re.search(boundary, str(_line)))
             )
 
             # display images
             for i in range(len(filenames)):
                 # remove file headers
-                file_data = data[(boundary_indices[i] + 4) : boundary_indices[i + 1]]
+                file_data = data[(boundary_indices[i] + 3) : boundary_indices[i + 1] + 1]
 
                 # join list of bytes into bytestring
                 file_data = b"".join(file_data)
@@ -134,12 +129,17 @@ class MyHandler(BaseHTTPRequestHandler):
                 np_arr = np.frombuffer(file_data, np.uint8)
                 cv_img = cv2.imdecode(np_arr, 0)
 
+                response = 200
+                self.log_message(f"Response {response}")
+                self.send_response(response)
+                self.end_headers()
+
+                display_image_and_wait(cv_img, f"image{rfid_serial_number}")
+
                 # respond with received file size and serial number
                 self.wfile.write(
                     f"Got image for rfid tag {rfid_serial_number}".encode()
                 )
-
-                display_image_and_wait(cv_img, f"image{rfid_serial_number}")
 
         else:
             response = 415
