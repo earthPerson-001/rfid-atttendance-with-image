@@ -4,6 +4,7 @@
 #include "esp_err.h"
 #include "esp_vfs_fat.h"
 #include "esp_log.h"
+#include "driver/gpio.h"
 
 // local includes
 
@@ -18,6 +19,11 @@
 
 esp_err_t init_sd_card(sdmmc_card_t **out)
 {
+    // the sda pin should be pulled up to deselect any of the devices
+    // but this doesn't solve the problem, hardware pull register might be required
+    // https://stackoverflow.com/questions/73178340/esp32-cam-sd-and-camera-use-up-all-the-pins
+    gpio_pullup_en(SDCARD_CS);
+    gpio_set_pull_mode(SDCARD_CS, GPIO_PULLUP_PULLDOWN); 
 
     sdmmc_host_t host = SDSPI_HOST_DEFAULT();
 
