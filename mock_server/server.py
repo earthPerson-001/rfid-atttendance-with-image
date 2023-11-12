@@ -59,74 +59,10 @@ class MyHandler(BaseHTTPRequestHandler):
             self.wfile.write(
                 f"Expected key `rfid-serial-number` in the header".encode()
             )
-
-        # reading only if image/jpeg was received
-        elif content_type.find("multipart/form-data") > -1:
-            # extract boundary from headers
-            boundary = re.search(
-                f"boundary=([^;]+)", self.headers["Content-Type"]
-            ).group(1)
-
-            if "Content-Length" in self.headers:
-                # read all bytes (headers included)
-                # 'readlines()' hangs the script because it needs the EOF character to stop,
-                # even if you specify how many bytes to read
-                # 'file.read(nbytes).splitlines(True)' does the trick because 'read()' reads 'nbytes' bytes
-                # and 'splitlines(True)' splits the file into lines and retains the newline character
-                data = self.rfile.read(int(self.headers["Content-Length"])).splitlines(
-                    True
-                )
-            elif "chunked" in self.headers.get("Transfer-Encoding", ""):
-                # the chunk buffer
-                data = "".encode()
-                while True:
-                    line = self.rfile.readline()
-                    self.log_message(str(line))
-                    line = line.strip().strip()  # in the form <length-hex>\r\n
-
-                    # skip if only line endings are provided
-                    if len(line) == 0:
-                        continue
-
-                    chunk_length = int(line, 16)  # in the hexadecimal format
-
-                    if chunk_length != 0:
-                        chunk = self.rfile.read(chunk_length)
-                        data += chunk
-
-                    # Each chunk is followed by an additional empty newline
-                    # that we have to consume.
-                    self.log_message(str(self.rfile.readline()))
-
-                    # Finally, a chunk size of 0 is an end indication
-                    if chunk_length == 0:
-                        break
-                data = data.splitlines(True)
-
-            # self.log_message("Received data" + str(data))
-            # find all filenames
-            filenames = re.findall(f'{boundary}.+?filename="(.+?)"', str(data))
-
-            if not filenames:
-                return False, "couldn't find file name(s)."
-
-            filenames = [sanitize_filename(filename) for filename in filenames]
-
-            # find all boundary occurrences in data
-            boundary_indices = list(
-                (i for i, _line in enumerate(data) if re.search(boundary, str(_line)))
-            )
-
-            # display images
-            for i in range(len(filenames)):
-                # remove file headers
-                file_data = data[(boundary_indices[i] + 3) : boundary_indices[i + 1] + 1]
-
-                # join list of bytes into bytestring
-                file_data = b"".join(file_data)
-
+        elif "image/jpeg" in self.headers.get("Content-Type") and "Content-Length" in self.headers:
+                data = self.rfile.read(int(self.headers["Content-Length"]))
                 self.log_message(f"Trying to decode the image.")
-                np_arr = np.frombuffer(file_data, np.uint8)
+                np_arr = np.frombuffer(data, np.uint8)
                 cv_img = cv2.imdecode(np_arr, 0)
 
                 response = 200
@@ -146,7 +82,7 @@ class MyHandler(BaseHTTPRequestHandler):
             self.log_message(f"Response {response}")
             self.send_response(response)  # unsupported media type
             self.wfile.write(
-                f"Unsupported meadia type {content_type}, expected image/jpeg".encode()
+                f"Unsupported meadia type {content_type}, expected image/jpeg along with Content-Length".encode()
             )
 
 
