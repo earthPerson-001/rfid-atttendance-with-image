@@ -226,30 +226,6 @@ void upload_jpeg_task(void *args)
         // setup to send data as chunk
         esp_http_client_open(client, -1); // write_len=-1 sets header "Transfer-Encoding: chunked" and method to POST
 
-        // header stuffs
-        sprintf(temp_buffer, "POST %s HTTP/1.1\r\n", "/post");
-        strcpy(header, temp_buffer);
-        sprintf(temp_buffer, "Host: %s\r\n", SERVER_ADDRESS);
-        strcat(header, temp_buffer);
-        sprintf(temp_buffer, "User-Agent: esp-idf/%d.%d.%d esp32\r\n", ESP_IDF_VERSION_MAJOR, ESP_IDF_VERSION_MINOR, ESP_IDF_VERSION_PATCH);
-        strcat(header, temp_buffer);
-        sprintf(temp_buffer, "Accept: */*\r\n");
-        strcat(header, temp_buffer);
-        sprintf(temp_buffer, _STREAM_CONTENT_TYPE);
-        strcat(header, _CONTENT_TYPE_HEADER);
-        sprintf(temp_buffer, "rfid-serial-number: %" PRIu64 "\r\n", serial_number);
-        strcat(header, temp_buffer);
-
-        ESP_LOGI(TAG, "the sent header is %s", header);
-
-        // the length of header in hex
-        hlen = snprintf(chunk_len_hex, sizeof(chunk_len_hex), "%X", strlen(header));
-        esp_http_client_write(client, strcat(chunk_len_hex, "\r\n"), hlen + 2); // assuming hlen < 8
-
-        // send header
-        esp_http_client_write(client, header, HTTP_POST_REQUEST_HEADER_SIZE);
-        send_crlf(client);
-
         // start body
         strcpy(body, _STREAM_BOUNDARY);                       // boundary start
         sprintf(temp_buffer, _CONTENT_DISPOSITION, filename); // contentent disposition with filename
