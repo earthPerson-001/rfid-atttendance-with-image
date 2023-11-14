@@ -18,7 +18,8 @@
 #include "camera.h"
 #include "events.h"
 #include "upload.h"
-
+#include "sd-card.h"
+#include "wifi.h"
 //---------------
 
 TaskHandle_t camera_feed_task_handle = NULL;
@@ -87,14 +88,34 @@ esp_err_t camera_capture(rc522_tag_t *rfid_tag, sdmmc_card_t *card, camera_fb_t 
         return ESP_FAIL;
     }
 
-    rfid_a_s_event_data_t event_data = {
-        .fb = fb,
-        .tag = rfid_tag,
-        .card = card};
+    // if the wifi isn't connected, there is no point in pinging
+    if (WIFI_CONNECTED_BIT & xEventGroupGetBits(s_wifi_event_group))
+    {
+        rfid_a_s_event_data_t event_data = {
+            .fb = fb,
+            .tag = rfid_tag,
+            .card = card};
 
-    // since long running tasks cannot be handled in event handlers
-    // directly calling the function
-    initialize_and_start_ping(&event_data);
+        // since long running tasks cannot be handled in event handlers
+        // directly calling the function
+        initialize_and_start_ping(&event_data);
+    }
+    else
+    {
+        // directly try to save to sdcard
+        if (NULL == card)
+        {
+            ESP_LOGE(TAG, "Couldn't save to sdcard as it wasn't initialized");
+        }
+        else
+        {
+            ESP_LOGI(TAG, "saving image to sdcard.");
+            if (ESP_OK != save_image_to_sdcard(fb->buf, rfid_tag->serial_number))
+            {
+                ESP_LOGE(TAG, "Couldn't save image for rfid_tag: %" PRIu64 " to sdcard.", rfid_tag->serial_number);
+            }
+        }
+    }
 
     return ESP_OK;
 }
@@ -120,23 +141,7 @@ void register_photo_task(void *args)
 
     // if in case the flow returns here
     free(queue_data);
-    vTaskDelete(NULL); 
-}
-
-static esp_err_t write_to_file_path(const char *path, char *data)
-{
-    ESP_LOGI(TAG, "Opening file %s", path);
-    FILE *f = fopen(path, "w");
-    if (f == NULL)
-    {
-        ESP_LOGE(TAG, "Failed to open file for writing");
-        return ESP_FAIL;
-    }
-    fprintf(f, data);
-    fclose(f);
-    ESP_LOGI(TAG, "File written");
-
-    return ESP_OK;
+    vTaskDelete(NULL);
 }
 
 static void on_ping_success(esp_ping_handle_t hdl, void *args)
@@ -202,6 +207,8 @@ static void on_ping_timeout(esp_ping_handle_t hdl, void *args)
         {
             ESP_LOGE(TAG, "Couldn't delete ping session. (error : %s)", esp_err_to_name(ret));
         }
+        ESP_LOGI(TAG, "Saving image locally because of unavailability of internet access.");
+
         // keeping a copy for freeing the callback args later on
         esp_err_t delete_ret = ret;
 
@@ -210,14 +217,20 @@ static void on_ping_timeout(esp_ping_handle_t hdl, void *args)
         assert(rfid_a_s_data->tag != NULL);
         assert(rfid_a_s_data->fb != NULL);
 
-        // create filename combining the rfid_tag and current timestamp
-
-        // obtain file path
-
         // save the frame buffer to the file path
         sdmmc_card_t *card = rfid_a_s_data->card;
-        ESP_LOGI(TAG, "saving to sdcard because of unavailability of internet access");
-
+        if (card == NULL)
+        {
+            ESP_LOGE(TAG, "Couldn't save to sdcard as it wasn't initialized");
+        }
+        else
+        {
+            ESP_LOGI(TAG, "saving image to sdcard.");
+            if (ESP_OK != save_image_to_sdcard(rfid_a_s_data->fb->buf, rfid_a_s_data->tag->serial_number))
+            {
+                ESP_LOGE(TAG, "Couldn't save image for rfid_tag: %" PRIu64 " to sdcard.", rfid_a_s_data->tag->serial_number);
+            }
+        }
 
         // free the callback args if the ping sessions was sucessfully deleted
         if (ESP_OK == delete_ret) // after all ping ends
