@@ -15,25 +15,6 @@ include_folder = module_path.parents[1].joinpath(
 print(f"Module path: {module_path}")
 print(f"Include folder: {include_folder.resolve()}")
 
-
-def sanitize_filename(filename: str) -> str:
-    """
-    Replaces all forbidden chars with '' and removes unnecessary whitespaces
-    If, after sanitization, the given filename is empty, the function will return 'file_[UUID][ext]'
-
-    :param filename: filename to be sanitized
-    :return: sanitized filename
-    """
-    chars = ["\\", "/", ":", "*", "?", '"', "<", ">", "|"]
-
-    filename = filename.translate({ord(x): "" for x in chars}).strip()
-    name = re.sub(r"\.[^.]+$", "", filename)
-    extension = re.search(r"(\.[^.]+$)", filename)
-    extension = extension.group(1) if extension else ""
-
-    return filename if name else f"file_{uuid.uuid4().hex}{extension}"
-
-
 class MyHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.log_request()
@@ -63,7 +44,7 @@ class MyHandler(BaseHTTPRequestHandler):
                 data = self.rfile.read(int(self.headers["Content-Length"]))
                 self.log_message(f"Trying to decode the image.")
                 np_arr = np.frombuffer(data, np.uint8)
-                cv_img = cv2.imdecode(np_arr, 0)
+                cv_img = cv2.imdecode(np_arr, cv2.IMREAD_UNCHANGED)
 
                 response = 200
                 self.log_message(f"Response {response}")
