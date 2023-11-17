@@ -7,6 +7,7 @@
 #include "esp_log.h"
 #include "esp_err.h"
 #include "esp_camera.h"
+#include "esp_spiffs.h"
 
 #include "freertos/task.h"
 #include "freertos/event_groups.h"
@@ -53,17 +54,51 @@ static camera_config_t camera_config = {
     .pin_href = CAM_PIN_HREF,
     .pin_pclk = CAM_PIN_PCLK,
 
-    .xclk_freq_hz = 16000000, // EXPERIMENTAL: Set to 16MHz on ESP32-S2 or ESP32-S3 to enable EDMA mode
+    .xclk_freq_hz = 8000000, // EXPERIMENTAL: Set to 16MHz on ESP32-S2 or ESP32-S3 to enable EDMA mode
     .ledc_timer = LEDC_TIMER_0,
     .ledc_channel = LEDC_CHANNEL_0,
 
     .pixel_format = PIXFORMAT_JPEG, // YUV422,GRAYSCALE,RGB565,JPEG
-    .frame_size = FRAMESIZE_UXGA,   // QQVGA-UXGA, For ESP32, do not use sizes above QVGA when not JPEG. The performance of the ESP32-S series has improved a lot, but JPEG mode always gives better frame rates.
+    .frame_size = FRAMESIZE_SVGA,   // QQVGA-UXGA, For ESP32, do not use sizes above QVGA when not JPEG. The performance of the ESP32-S series has improved a lot, but JPEG mode always gives better frame rates.
 
-    .jpeg_quality = 12,                  // 0-63, for OV series camera sensors, lower number means higher quality
-    .fb_count = 1,                       // When jpeg mode is used, if fb_count more than one, the driver will work in continuous mode.
-    .grab_mode = CAMERA_GRAB_WHEN_EMPTY, // CAMERA_GRAB_LATEST. Sets when buffers should be filled
+    .jpeg_quality = 12, // 0-63, for OV series camera sensors, lower number means higher quality
+    .fb_count = 2,      // When jpeg mode is used, if fb_count more than one, the driver will work in continuous mode.
+    .fb_location = CAMERA_FB_IN_PSRAM,
+    .grab_mode = CAMERA_GRAB_LATEST, // CAMERA_GRAB_LATEST. Sets when buffers should be filled
     .sccb_i2c_port = 0};
+
+esp_err_t initialize_spiffs()
+{
+    ESP_LOGI(TAG, "Initializing SPIFFS");
+
+    esp_vfs_spiffs_conf_t conf = {
+        .base_path = "/spiffs",
+        .partition_label = NULL,
+        .max_files = 5,
+        .format_if_mount_failed = true};
+
+    // Use settings defined above to initialize and mount SPIFFS filesystem.
+    // Note: esp_vfs_spiffs_register is an all-in-one convenience function.
+    esp_err_t ret = esp_vfs_spiffs_register(&conf);
+
+    if (ret != ESP_OK)
+    {
+        if (ret == ESP_FAIL)
+        {
+            ESP_LOGE(TAG, "Failed to mount or format filesystem");
+        }
+        else if (ret == ESP_ERR_NOT_FOUND)
+        {
+            ESP_LOGE(TAG, "Failed to find SPIFFS partition");
+        }
+        else
+        {
+            ESP_LOGE(TAG, "Failed to initialize SPIFFS (%s)", esp_err_to_name(ret));
+        }
+        return ret;
+    }
+    return ret;
+}
 
 esp_err_t camera_init()
 {
@@ -120,7 +155,7 @@ void register_photo_task(void *args)
 
     // if in case the flow returns here
     free(queue_data);
-    vTaskDelete(NULL); 
+    vTaskDelete(NULL);
 }
 
 static esp_err_t write_to_file_path(const char *path, char *data)
@@ -217,7 +252,6 @@ static void on_ping_timeout(esp_ping_handle_t hdl, void *args)
         // save the frame buffer to the file path
         sdmmc_card_t *card = rfid_a_s_data->card;
         ESP_LOGI(TAG, "saving to sdcard because of unavailability of internet access");
-
 
         // free the callback args if the ping sessions was sucessfully deleted
         if (ESP_OK == delete_ret) // after all ping ends

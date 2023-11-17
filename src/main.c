@@ -94,6 +94,8 @@ void app_main(void)
     /** Not using when using rc522 as both use SPI protocol */
     if (USE_ESP32CAM == 1)
     {
+        // initialize spiffs
+        initialize_spiffs();
 
         // initializing the camera
         camera_init();

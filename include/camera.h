@@ -35,6 +35,8 @@ extern "C"
     extern TaskHandle_t camera_feed_task_handle;
     extern rc522_handle_t scanner;
 
+    esp_err_t initialize_spiffs();
+
     esp_err_t camera_init();
 
     void register_photo_task(void *args);
