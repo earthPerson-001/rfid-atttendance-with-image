@@ -48,30 +48,44 @@ class MyHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         self.log_request()
+
+        # common across all paths
+
+        images: list[np.ndarray[np.uint8]] = []
+        response = 400
+        response_msg = ""
+
         rfid_serial_number = int(
             self.headers.get("rfid-serial-number", 0)
         )  # set rfid to 0 if fail
         content_type = self.headers.get("Content-Type").__str__()
-        print(content_type)
+
         if rfid_serial_number == 0:
             response = 417
-            self.log_message(f"Response {response}")
-            self.send_response(response)  # expectation failed
-            self.wfile.write(
-                f"Expected key `rfid-serial-number` in the header".encode()
-            )
+            response_msg = f"Expected key `rfid-serial-number` in the header"
+        elif (
+            "image/jpeg" in self.headers.get("Content-Type")
+            and "Content-Length" in self.headers
+        ):
+            data = self.rfile.read(int(self.headers["Content-Length"]))
+            self.log_message(f"Trying to decode the image.")
+            np_arr = np.frombuffer(data, np.uint8)
+            images.append(cv2.imdecode(np_arr, cv2.IMREAD_UNCHANGED))
 
-        # reading only if image/jpeg was received
+            response = 200
+
+            # respond with received file size and serial number
+            response_msg = f"Got image for rfid tag {rfid_serial_number}"
         elif content_type.find("multipart/form-data") > -1:
             response = 200
             self.log_message(f"Response {response}")
-            self.send_response(response)
-            self.end_headers()
+
             # extract boundary from headers
             boundary = re.search(
                 f"boundary=([^;]+)", self.headers["Content-Type"]
             ).group(1)
 
+            # handling post requests sent all at once
             if "Content-Length" in self.headers:
                 # read all bytes (headers included)
                 # 'readlines()' hangs the script because it needs the EOF character to stop,
@@ -81,6 +95,7 @@ class MyHandler(BaseHTTPRequestHandler):
                 data = self.rfile.read(int(self.headers["Content-Length"])).splitlines(
                     True
                 )
+            # handling post request sent in chunks
             elif "chunked" in self.headers.get("Transfer-Encoding", ""):
                 # the chunk buffer
                 data = "".encode()
@@ -122,7 +137,7 @@ class MyHandler(BaseHTTPRequestHandler):
                 (i for i, line in enumerate(data) if re.search(boundary, str(line)))
             )
 
-            # display images
+            # append images
             for i in range(len(filenames)):
                 # remove file headers
                 file_data = data[(boundary_indices[i] + 4) : boundary_indices[i + 1]]
@@ -132,22 +147,23 @@ class MyHandler(BaseHTTPRequestHandler):
 
                 self.log_message(f"Trying to decode the image.")
                 np_arr = np.frombuffer(file_data, np.uint8)
-                cv_img = cv2.imdecode(np_arr, 0)
+                images.append(cv2.imdecode(np_arr, cv2.IMREAD_UNCHANGED))
 
                 # respond with received file size and serial number
-                self.wfile.write(
-                    f"Got image for rfid tag {rfid_serial_number}".encode()
-                )
-
-                display_image_and_wait(cv_img, f"image{rfid_serial_number}")
+                response_msg = f"Got image for rfid tag {rfid_serial_number}"
 
         else:
             response = 415
-            self.log_message(f"Response {response}")
-            self.send_response(response)  # unsupported media type
-            self.wfile.write(
-                f"Unsupported meadia type {content_type}, expected image/jpeg".encode()
-            )
+            response_msg = f"Unsupported meadia type {content_type}, expected image/jpeg along with Content-Length or multipart/form-data"
+
+        self.log_message(f"Response {response}")
+        self.send_response(response)
+        self.end_headers()
+        self.wfile.write(response_msg.encode())
+
+        if len(images) > 0:
+            for i, image in enumerate(images):
+                display_image_and_wait(image, f"{rfid_serial_number}_{i}")
 
 
 def get_ip():

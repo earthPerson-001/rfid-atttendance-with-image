@@ -38,6 +38,9 @@ extern "C"
 #define PING_TARGET "www.espressif.com"
 #define SERVER_ADDRESS "192.168.1.107:8000" //testing locally 
 
+// full filepath of image
+#define IMAGE_FILEPATH_LENGTH 50
+
 /*
  * SPI for sdcard of esp32-cam and rc522
  */
