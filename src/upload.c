@@ -132,9 +132,13 @@ static esp_err_t _http_event_handler(esp_http_client_event_t *evt)
     return ESP_OK;
 }
 
-inline void send_crlf(esp_http_client_handle_t client)
+esp_err_t send_crlf(esp_http_client_handle_t client)
 {
-    esp_http_client_write(client, "\r\n", 2);
+    if ( -1 == esp_http_client_write(client, "\r\n", 2) ) {
+        return ESP_FAIL;
+    }
+
+    return ESP_OK;
 };
 
 void upload_jpeg_task(void *args)
@@ -239,7 +243,7 @@ void upload_jpeg_task(void *args)
 
         // send body
         esp_http_client_write(client, body, HTTP_POST_REQUEST_BODY_SIZE);
-        send_crlf(client);
+        err = send_crlf(client);
         if (err == ESP_OK)
         {
             if (fb->format == PIXFORMAT_JPEG)
@@ -276,8 +280,8 @@ void upload_jpeg_task(void *args)
         send_crlf(client);
 
         // end
-        err = esp_http_client_write(client, "0\r\n", 3);
-        send_crlf(client);  // send \r\n
+        esp_http_client_write(client, "0\r\n", 3);
+        err = send_crlf(client);  // send \r\n
         // // converting fb_len to string
         // char fb_len_str[(size_t)((ceil(log10(fb_len)) + 1) * sizeof(char))];
         // sprintf(fb_len_str, "%zu", fb_len);
