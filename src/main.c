@@ -26,8 +26,8 @@
 
 #if defined USE_ESP32CAM == 1 // rfid reader and camera both use SPI protocol, so excluding camera when using rfid reader
 #include "camera.h"
-#define ESP32_CAM_LED_BUILTIN_PIN 33 // This LED works with inverted logic, so you send a LOW signal to turn it on and a HIGH signal to turn it off.
-#define ESP32_CAM_CAMERA_FLASH_PIN 4
+#define ESP32_CAM_LED_BUILTIN_PIN 33
+#define ESP32_CAM_CAMERA_FLASH_PIN 4 // This LED works with inverted logic, so you send a LOW signal to turn it on and a HIGH signal to turn it off.
 #endif
 
 #include "sd-card.h"
@@ -124,7 +124,7 @@ void app_main(void)
     if (USE_ESP32CAM == 1)
     {
         gpio_set_direction(ESP32_CAM_LED_BUILTIN_PIN, GPIO_MODE_OUTPUT);
-        gpio_set_direction(ESP32_CAM_CAMERA_FLASH_PIN, GPIO_MODE_OUTPUT);
+        // gpio_set_direction(ESP32_CAM_CAMERA_FLASH_PIN, GPIO_MODE_OUTPUT);
     }
 #endif
 
