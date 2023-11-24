@@ -51,12 +51,12 @@ class MyHandler(BaseHTTPRequestHandler):
                 self.send_response(response)
                 self.end_headers()
 
-                display_image_and_wait(cv_img, f"image{rfid_serial_number}")
-
                 # respond with received file size and serial number
                 self.wfile.write(
                     f"Got image for rfid tag {rfid_serial_number}".encode()
                 )
+
+                display_image_and_wait(cv_img, f"image{rfid_serial_number}")
 
         else:
             response = 415
