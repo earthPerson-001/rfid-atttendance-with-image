@@ -8,6 +8,8 @@ from pathlib import Path
 import re
 import uuid
 
+LOG_RECEIVED_DATA = False
+
 module_path = Path(__file__).resolve()
 include_folder = module_path.parents[1].joinpath(
     "include"
@@ -68,7 +70,8 @@ class MyHandler(BaseHTTPRequestHandler):
             and "Content-Length" in self.headers
         ):
             data = self.rfile.read(int(self.headers["Content-Length"]))
-            self.log_message(f"Trying to decode the image.")
+            if LOG_RECEIVED_DATA:
+                self.log_message(f"Trying to decode the image.")
             np_arr = np.frombuffer(data, np.uint8)
             images.append(cv2.imdecode(np_arr, cv2.IMREAD_UNCHANGED))
 
@@ -78,7 +81,8 @@ class MyHandler(BaseHTTPRequestHandler):
             response_msg = f"Got image for rfid tag {rfid_serial_number}"
         elif content_type.find("multipart/form-data") > -1:
             response = 200
-            self.log_message(f"Response {response}")
+            if LOG_RECEIVED_DATA:
+                self.log_message(f"Response {response}")
 
             # extract boundary from headers
             boundary = re.search(
@@ -101,7 +105,8 @@ class MyHandler(BaseHTTPRequestHandler):
                 data = "".encode()
                 while True:
                     line = self.rfile.readline()
-                    self.log_message(str(line))
+                    if LOG_RECEIVED_DATA:
+                        self.log_message(str(line))
                     line = line.strip().strip()  # in the form <length-hex>\r\n
 
                     # skip if only line endings are provided
@@ -112,18 +117,23 @@ class MyHandler(BaseHTTPRequestHandler):
 
                     if chunk_length != 0:
                         chunk = self.rfile.read(chunk_length)
+                        # print(str(chunk))  # logging causes error
                         data += chunk
 
                     # Each chunk is followed by an additional empty newline
                     # that we have to consume.
-                    self.log_message(str(self.rfile.readline()))
+                    if LOG_RECEIVED_DATA:
+                        self.log_message(str(self.rfile.readline()))
+                    else:
+                        self.rfile.readline()
 
                     # Finally, a chunk size of 0 is an end indication
                     if chunk_length == 0:
                         break
                 data = data.splitlines(True)
 
-            self.log_message("Received data: \n %s", data)
+            if LOG_RECEIVED_DATA:
+                self.log_message("Received data: \n %s", data)
             # find all filenames
             filenames = re.findall(f'{boundary}.+?filename="(.+?)"', str(data))
 
@@ -145,7 +155,8 @@ class MyHandler(BaseHTTPRequestHandler):
                 # join list of bytes into bytestring
                 file_data = b"".join(file_data)
 
-                self.log_message(f"Trying to decode the image.")
+                if LOG_RECEIVED_DATA:
+                    self.log_message(f"Trying to decode the image.")
                 np_arr = np.frombuffer(file_data, np.uint8)
                 images.append(cv2.imdecode(np_arr, cv2.IMREAD_UNCHANGED))
 
@@ -156,7 +167,8 @@ class MyHandler(BaseHTTPRequestHandler):
             response = 415
             response_msg = f"Unsupported meadia type {content_type}, expected image/jpeg along with Content-Length or multipart/form-data"
 
-        self.log_message(f"Response {response}")
+        if LOG_RECEIVED_DATA:
+            self.log_message(f"Response {response}")
         self.send_response(response)
         self.end_headers()
         self.wfile.write(response_msg.encode())
