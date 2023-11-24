@@ -54,15 +54,16 @@ static camera_config_t camera_config = {
     .pin_href = CAM_PIN_HREF,
     .pin_pclk = CAM_PIN_PCLK,
 
-    .xclk_freq_hz = 8000000, // EXPERIMENTAL: Set to 16MHz on ESP32-S2 or ESP32-S3 to enable EDMA mode
+    .xclk_freq_hz = 16500000, // https://github.com/espressif/esp32-camera/issues/150
+                              // EXPERIMENTAL: Set to 16MHz on ESP32-S2 or ESP32-S3 to enable EDMA mode
     .ledc_timer = LEDC_TIMER_0,
     .ledc_channel = LEDC_CHANNEL_0,
 
     .pixel_format = PIXFORMAT_JPEG, // YUV422,GRAYSCALE,RGB565,JPEG
     .frame_size = FRAMESIZE_SVGA,   // QQVGA-UXGA, For ESP32, do not use sizes above QVGA when not JPEG. The performance of the ESP32-S series has improved a lot, but JPEG mode always gives better frame rates.
-
-    .jpeg_quality = 12, // 0-63, for OV series camera sensors, lower number means higher quality
-    .fb_count = 2,      // When jpeg mode is used, if fb_count more than one, the driver will work in continuous mode.
+    // use higher quality initially as described in : https://github.com/espressif/esp32-camera/issues/185#issue-716800775
+    .jpeg_quality = 5, // 0-63, for OV series camera sensors, lower number means higher quality
+    .fb_count = 3,      // When jpeg mode is used, if fb_count more than one, the driver will work in continuous mode.
     .fb_location = CAMERA_FB_IN_PSRAM,
     .grab_mode = CAMERA_GRAB_LATEST, // CAMERA_GRAB_LATEST. Sets when buffers should be filled
     .sccb_i2c_port = 0};
@@ -363,13 +364,29 @@ void start_camera_feed(void *card)
                 REGISTER_PHOTO_TASK_PRIORITY,
                 &camera_feed_task_handle);
 
+    camera_fb_t *fb;
+
+    // now use lower quality as described in : https://github.com/espressif/esp32-camera/issues/185#issue-716800775
+    sensor_t *ss = esp_camera_sensor_get();
+    ss->set_quality(ss, 12);
+
     while (1)
     {
+
         // get the current frame buffer
-        camera_fb_t *fb = esp_camera_fb_get();
+        fb = esp_camera_fb_get();
+
+        // do some display stuffs
+        vTaskDelay(50 / portTICK_PERIOD_MS);
+
+        // release the buffer
+        esp_camera_fb_return(fb);
 
         if (photo_being_taken == pdTRUE && fb != NULL && current_tag != NULL)
         {
+            // the current frame buffer
+            fb = esp_camera_fb_get();
+
             /** Might require handling of case when countdown is going on*/
 
             rfid_a_s_event_data_t queue_data = {
@@ -392,15 +409,12 @@ void start_camera_feed(void *card)
                 ESP_LOGE(TAG, "Couldn't send to queue `rfid_photo_queue` (error : %s)", esp_err_to_name(ret));
             }
 
+            esp_camera_fb_return(fb);
+
             // reset the variables
             photo_being_taken = pdFALSE;
             current_tag = NULL;
         }
-
-        esp_camera_fb_return(fb);
-
-        // send to display
-        // ...
     }
 
     // if somehow it exits
