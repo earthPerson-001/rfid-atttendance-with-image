@@ -121,9 +121,9 @@ class MyHandler(BaseHTTPRequestHandler):
                     # Finally, a chunk size of 0 is an end indication
                     if chunk_length == 0:
                         break
-                data.splitlines(True)
+                data = data.splitlines(True)
 
-            self.log_message(f"Received data: \n {data}")
+            self.log_message("Received data: \n %s", data)
             # find all filenames
             filenames = re.findall(f'{boundary}.+?filename="(.+?)"', str(data))
 
@@ -140,7 +140,7 @@ class MyHandler(BaseHTTPRequestHandler):
             # append images
             for i in range(len(filenames)):
                 # remove file headers
-                file_data = data[(boundary_indices[i] + 4) : boundary_indices[i + 1]]
+                file_data = data[(boundary_indices[i] + 3) : boundary_indices[i + 1]]
 
                 # join list of bytes into bytestring
                 file_data = b"".join(file_data)

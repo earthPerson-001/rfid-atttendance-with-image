@@ -7,7 +7,7 @@ extern "C"
 
 #include "freertos/event_groups.h"
 
-#define EXAMPLE_ESP_WIFI_SSID "nointernet"
+#define EXAMPLE_ESP_WIFI_SSID "internet"
 #define EXAMPLE_ESP_WIFI_PASS "prospectus502715"
 #define EXAMPLE_ESP_MAXIMUM_RETRY 2 // repeated trial without delay is pointless
 // todo: setup a task to check wifi connection in some interval

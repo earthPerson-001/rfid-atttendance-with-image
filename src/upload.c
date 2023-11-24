@@ -20,8 +20,13 @@
 #include "upload.h"
 // --------------
 
-static const char *_STREAM_CONTENT_TYPE = "image/jpeg";
-static const char *_CONTENT_DISPOSITION = "inline; filename=%s";
+#define HTTP_POST_REQUEST_BODY_SIZE 512   // allocate this on heap
+#define HTTP_POST_REQUEST_HEADER_SIZE 512 // allocate header on heap
+#define PART_BOUNDARY "123456789000000000000987654321"
+static const char *_STREAM_CONTENT_TYPE = "multipart/form-data; boundary=" PART_BOUNDARY;
+static const char *_CONTENT_DISPOSITION = "form-data; name=\"upfile\"; filename=\"%s\"; ";
+static const char *_STREAM_BOUNDARY = "\r\n--" PART_BOUNDARY "\r\n";
+static const char *_MULTIPART_FORM_DATA_BODY_END = "\r\n--" PART_BOUNDARY "--\r\n";
 
 static esp_err_t _http_event_handler(esp_http_client_event_t *evt)
 {
@@ -127,6 +132,11 @@ static esp_err_t _http_event_handler(esp_http_client_event_t *evt)
     return ESP_OK;
 }
 
+inline void send_crlf(esp_http_client_handle_t client)
+{
+    esp_http_client_write(client, "\r\n", 2);
+};
+
 void upload_jpeg_task(void *args)
 {
     u8_t retry = 0;
@@ -152,13 +162,18 @@ void upload_jpeg_task(void *args)
 
     esp_err_t err;
     size_t fb_len; // to store the exact jpeg length
-    size_t temp_buffer_len = 32;
-    char *temp_buffer = calloc(temp_buffer_len + 1, sizeof(char));
     int64_t fr_start;
+
+    size_t hlen;
+    char chunk_len_hex[10];
 
     // Declare local_response_buffer with size (MAX_HTTP_OUTPUT_BUFFER + 1) to prevent out of bound access when
     // it is used by functions like strlen(). The buffer should only be used upto size MAX_HTTP_OUTPUT_BUFFER
     char local_response_buffer[MAX_HTTP_OUTPUT_BUFFER + 1];
+
+    char *header = calloc(HTTP_POST_REQUEST_HEADER_SIZE + 1, sizeof(char));
+    char *body = calloc(HTTP_POST_REQUEST_BODY_SIZE + 1, sizeof(char));
+    char *temp_buffer = calloc(128 + 1, sizeof(char));
 
     while (1)
     {
@@ -166,7 +181,9 @@ void upload_jpeg_task(void *args)
 
         // clearing the buffer
         memset(local_response_buffer, 0, MAX_HTTP_OUTPUT_BUFFER + 1);
-        memset(temp_buffer, 0, temp_buffer_len + 1);
+        memset(header, 0, HTTP_POST_REQUEST_HEADER_SIZE);
+        memset(body, 0, HTTP_POST_REQUEST_BODY_SIZE);
+        memset(temp_buffer, 0, 128);
 
         // upload to server
         ESP_LOGI(TAG, "Uploading jpeg to server: " SERVER_ADDRESS);
@@ -203,17 +220,35 @@ void upload_jpeg_task(void *args)
         sprintf(temp_buffer, "%" PRIu64 "", serial_number);
         esp_http_client_set_header(client, "rfid-serial-number", temp_buffer);
         esp_http_client_set_header(client, "Content-Type", _STREAM_CONTENT_TYPE);
-        sprintf(temp_buffer, _CONTENT_DISPOSITION, filename);
-        esp_http_client_set_header(client, "Content-Disposition", temp_buffer);
 
-        ESP_LOGI(TAG, "Performing a http POST request");
+        // setup to send data as chunk
+        esp_http_client_open(client, -1); // write_len=-1 sets header "Transfer-Encoding: chunked" and method to POST
+
+        // start body
+        strcpy(body, _STREAM_BOUNDARY);                       // boundary start
+        sprintf(temp_buffer, _CONTENT_DISPOSITION, filename); // contentent disposition with filename
+        strcat(body, temp_buffer);                            // concatenating to the body
+        sprintf(temp_buffer, "Content-Type: application/octet-stream\r\n\r\n");
+        strcat(body, temp_buffer);
+
+        ESP_LOGI(TAG, "The sent body is %s", body);
+
+        // the length of body in hex
+        hlen = snprintf(chunk_len_hex, sizeof(chunk_len_hex), "%X", strlen(body));
+        esp_http_client_write(client, strcat(chunk_len_hex, "\r\n"), hlen + 2); // assuming hlen < 8
+
+        // send body
+        esp_http_client_write(client, body, HTTP_POST_REQUEST_BODY_SIZE);
+        send_crlf(client);
         if (err == ESP_OK)
         {
             if (fb->format == PIXFORMAT_JPEG)
             {
                 fb_len = fb->len;
                 // the length of frame buffer in hex
-                if (-1 == esp_http_client_set_post_field(client, (char *)fb->buf, fb_len))
+                hlen = snprintf(chunk_len_hex, sizeof(chunk_len_hex), "%X", fb_len);
+                esp_http_client_write(client, strcat(chunk_len_hex, "\r\n"), hlen + 2); // assuming hlen < 8
+                if (-1 == esp_http_client_write(client, (char *)fb->buf, fb_len))
                 { // the frame buffer
                     ESP_LOGE(TAG, "Couldn't write frame buffer.");
                 }
@@ -223,16 +258,32 @@ void upload_jpeg_task(void *args)
                 uint8_t *jpeg_buffer;
                 if (ESP_OK == err && frame2jpg(fb, 80, &jpeg_buffer, &fb_len))
                 {
-                    if (-1 == esp_http_client_set_post_field(client, (char *)jpeg_buffer, fb_len))
+                    // the length of frame buffer in hex
+                    hlen = snprintf(chunk_len_hex, sizeof(chunk_len_hex), "%X", fb_len);
+                    esp_http_client_write(client, strcat(chunk_len_hex, "\r\n"), hlen + 2); // assuming hlen < 8
+                    if (-1 == esp_http_client_write(client, (char *)jpeg_buffer, fb_len))
                     { // the frame buffer
                         ESP_LOGE(TAG, "Couldn't write frame buffer.");
                     }
                 }
             }
+            send_crlf(client);
         }
-        sprintf(temp_buffer, "%u", fb_len);
-        esp_http_client_set_header(client, "Content-Length", temp_buffer);
-        err = esp_http_client_perform(client);
+        // the length of stream boundary in hex
+        hlen = snprintf(chunk_len_hex, sizeof(chunk_len_hex), "%X", strlen(_STREAM_BOUNDARY));
+        esp_http_client_write(client, strcat(chunk_len_hex, "\r\n"), hlen + 2); // assuming hlen < 8
+        esp_http_client_write(client, _MULTIPART_FORM_DATA_BODY_END, strlen(_MULTIPART_FORM_DATA_BODY_END));
+        send_crlf(client);
+
+        // end
+        err = esp_http_client_write(client, "0\r\n", 3);
+        send_crlf(client);  // send \r\n
+        // // converting fb_len to string
+        // char fb_len_str[(size_t)((ceil(log10(fb_len)) + 1) * sizeof(char))];
+        // sprintf(fb_len_str, "%zu", fb_len);
+
+        // esp_http_client_set_header(client, "Content-Length", fb_len_str);
+        // err = esp_http_client_perform(client);
         
         if (err == ESP_OK)
         {
@@ -256,6 +307,8 @@ void upload_jpeg_task(void *args)
         esp_http_client_cleanup(client);
     }
     free(fb); // clearing the frame buffer that we created
+    free(header);
+    free(body);
     free(temp_buffer);
     vTaskDelete(NULL);
 }
