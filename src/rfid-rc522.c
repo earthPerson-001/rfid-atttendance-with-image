@@ -15,7 +15,7 @@
 #define RC522_SCK 19
 #define RC522_SS (22) // the chip select pin for scanner
 
-rc522_handle_t scanner = NULL;
+static rc522_handle_t scanner = NULL;
 
 static void rc522_handler(void *arg, esp_event_base_t base, int32_t event_id, void *event_data)
 {

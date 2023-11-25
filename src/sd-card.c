@@ -117,7 +117,7 @@ esp_err_t get_new_image_filepath(uint64_t img_identifier, char *extension, char 
     gettimeofday(&tv_now, NULL);
     int64_t time_us = (int64_t)tv_now.tv_sec * 1000000L + (int64_t)tv_now.tv_usec;
     //                                      /sdcard/images/<rfid_tag>_<time_us>.jpg
-    snprintf(out_filepath, out_filepath_length, "%s/%" PRIu64 "_%" PRIu64 "%s", get_images_folder(), img_identifier, time_us, extension);
+    snprintf(out_filepath, out_filepath_length, "%s/%" PRIu64 "_%" PRIi64 "%s", get_images_folder(), img_identifier, time_us, extension);
 
     return ESP_OK;
 }
@@ -143,7 +143,7 @@ char *get_images_folder()
     return images_folder;
 }
 
-esp_err_t write_to_file_path(const char *path, char *data)
+esp_err_t write_to_file_path(const char *path, const char *data)
 {
     ESP_LOGI(TAG, "Opening file %s", path);
     FILE *f = fopen(path, "w");
