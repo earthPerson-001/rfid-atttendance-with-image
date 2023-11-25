@@ -32,7 +32,7 @@
 
 #include "sd-card.h"
 #include "events.h"
-
+#include "ota.h"
 // --------------
 
 #define LED_BUILTIN_PIN 2
@@ -44,6 +44,10 @@ void initialize_nvs(void)
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND)
     {
+        // 1.OTA app partition table has a smaller NVS partition size than the non-OTA
+        // partition table. This size mismatch may cause NVS initialization to fail.
+        // 2.NVS partition contains data in new format and cannot be recognized by this version of code.
+        // If this happens, we erase NVS partition and initialize NVS again.
         ESP_ERROR_CHECK(nvs_flash_erase());
         ret = nvs_flash_init();
     }
@@ -83,6 +87,10 @@ void app_main(void)
     // try connecting to wifi
     ESP_LOGI(TAG, "ESP_WIFI_MODE_STA\n");
     wifi_init_sta();
+
+    // start ota
+    if (ESP_OK != start_ota_process())
+        ESP_LOGE(TAG, "Couldn't start ota process.");
 
     // set some delay to clear up before initializing camera (if high power is consumed)
     // vTaskDelay(1000/portTICK_PERIOD_MS);

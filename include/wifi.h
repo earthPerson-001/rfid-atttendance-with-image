@@ -6,6 +6,7 @@ extern "C"
 #endif
 
 #include "freertos/event_groups.h"
+#include "esp_wifi_types.h"
 
 #define EXAMPLE_ESP_WIFI_SSID "internet"
 #define EXAMPLE_ESP_WIFI_PASS "prospectus502715"
@@ -23,6 +24,8 @@ extern "C"
  * - we failed to connect after the maximum amount of retries */
 #define WIFI_CONNECTED_BIT BIT0
 #define WIFI_FAIL_BIT BIT1
+
+#define WIFI_POWER_SAVING_MODE WIFI_PS_NONE
 
     /* FreeRTOS event group to signal when we are connected*/
     extern EventGroupHandle_t s_wifi_event_group;

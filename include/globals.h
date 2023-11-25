@@ -15,9 +15,10 @@ extern "C"
 
 // priorities of various tasks
 // main task has priority 1
-#define CAMERA_FEED_TASK_PRIORITY (UBaseType_t)2    // less priority than the main task
-#define REGISTER_PHOTO_TASK_PRIORITY (UBaseType_t)3 // less priority than pushing the video to screen
-#define UPLOAD_JPEG_TASK_PRIORITY (UBaseType_t)4    // least priority of them all
+#define OTA_TASK_PRIORITY (UBaseType_t)2            // ota task must be handled first
+#define CAMERA_FEED_TASK_PRIORITY (UBaseType_t)3    // less priority than the main task
+#define REGISTER_PHOTO_TASK_PRIORITY (UBaseType_t)4 // less priority than pushing the video to screen
+#define UPLOAD_JPEG_TASK_PRIORITY (UBaseType_t)5    // least priority of them all
 
 // for http client
 #define MAX_HTTP_RECV_BUFFER 512
@@ -33,7 +34,7 @@ extern "C"
 #define REGISTER_PHOTO_TASK_CORE_AFFINITY (UBaseType_t)0
 #define UPLOAD_JPEG_TASK_CORE_AFFINITY (UBaseType_t)0
 
-// upload related
+// upload jpeg related
 #define PING_COUNT 4
 #define PING_TARGET "www.espressif.com"
 #define SERVER_ADDRESS "192.168.1.107:8000" //testing locally 
