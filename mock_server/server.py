@@ -14,6 +14,10 @@ import cv2
 import numpy as np
 
 LOG_RECEIVED_DATA = False
+# don't expose to LAN and setup for http connection instead of https
+# this is done to use some other services like ngrok to expose it as https
+# and self signing certificates causes problem with FQDN(Fully Qualified Domain Name) or CN(Common Name)
+SERVE_ON_LOCALHOST = False
 
 module_path = Path(__file__).resolve()
 include_folder = module_path.parents[1].joinpath(
@@ -28,98 +32,103 @@ print(f"Module path: {module_path}")
 print(f"Include folder: {include_folder.resolve()}")
 print(f"Ota Folder: {ota_folder.resolve()}")
 
-server_cert = "-----BEGIN CERTIFICATE-----\n"\
-    "MIIGCTCCA/GgAwIBAgIUcKWns9NiXfLkpz7CYRvul08pXSAwDQYJKoZIhvcNAQEL\n"\
-    "BQAwgZMxCzAJBgNVBAYTAk5QMRAwDgYDVQQIDAdCYWdtYXRpMRIwEAYDVQQHDAlE\n"\
-    "aHVsaWtoZWwxEDAOBgNVBAoMB09tbmVjYWwxDzANBgNVBAsMBkludGVybjEPMA0G\n"\
-    "A1UEAwwGQmlzaGFsMSowKAYJKoZIhvcNAQkBFhtuZXVwYW5lYmlzaGFsMjAwMUBn\n"\
-    "bWFpbC5jb20wHhcNMjMxMTI1MTQ0NjAzWhcNMjQxMTI0MTQ0NjAzWjCBkzELMAkG\n"\
-    "A1UEBhMCTlAxEDAOBgNVBAgMB0JhZ21hdGkxEjAQBgNVBAcMCURodWxpa2hlbDEQ\n"\
-    "MA4GA1UECgwHT21uZWNhbDEPMA0GA1UECwwGSW50ZXJuMQ8wDQYDVQQDDAZCaXNo\n"\
-    "YWwxKjAoBgkqhkiG9w0BCQEWG25ldXBhbmViaXNoYWwyMDAxQGdtYWlsLmNvbTCC\n"\
-    "AiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIBAOpjjLslc4bgmP/DOUrfOg/s\n"\
-    "aF47UiV/Vz0ydRFyKM/Rwq1+kpsY1E0mWco8Q5T5cmPcqhKJSkR6wMQAzoBrO3Sk\n"\
-    "PKiabLTZhn6DIuMqgm49eF8ZnPoIgD8nxG4Yj+TXPiyBoUVqHxhCd0WlXBA8qnI+\n"\
-    "8XjKnu3PtzQ/nnoMBE1jL9QPOr9Vtiywku3+CC9sT8UWnS4lIC8ZdUYJJTPRhvJU\n"\
-    "RgOr/2pbBwd0F+Tm1Zbek3iz8oPHOCGTiqYUgPDhCSCHHFTSoJWvy1dmKEuzX8dm\n"\
-    "ieONJ0AVE3BcXYgKTcHj0PhcExRV8TF+Oc7Q7gseHDU72vdeJ31e4kymoaLyHQ4H\n"\
-    "5DWoPN3JJZDAJrRmbgVexcvkPasA9mJl28OzSXFinDM1QR3NDjVbL2qYdU7845MR\n"\
-    "+qD+OxmKQRQVl4GJM6CnnlIHmSaUN24NmbIViLuH8KhLvHOd748j554cAoU23fyr\n"\
-    "9uV/uCK9Nsm3ZNMrPpXAe/4xmVm351NbK6YBjYDFxIrBjXyXGSXvYfcU/AvH6j3h\n"\
-    "qgbR0DiW6FhGFpJ5SaMvOl/3ekSV4iY6YsKuYOEUNn1x2DI5lIeRbEwSz9CTbzkA\n"\
-    "LD8COlyIiwPrYHEMgpodzhxr2sg0/Vu6uzozKI5RuDEToCc4BxGnnyvkmSviyMNN\n"\
-    "nxMmfXrG3Nh7bztxKTPRAgMBAAGjUzBRMB0GA1UdDgQWBBS0FYhj/IqXSOmiwEEw\n"\
-    "woYO87RbvDAfBgNVHSMEGDAWgBS0FYhj/IqXSOmiwEEwwoYO87RbvDAPBgNVHRMB\n"\
-    "Af8EBTADAQH/MA0GCSqGSIb3DQEBCwUAA4ICAQDMsR83QQ6nNlIPq4GBu2Tf9LvI\n"\
-    "Fl+XPonEW3YpBYqxsZZSBBtLzALfw2BfL0tewENBUkBUz+Fi0GAjCMxhiOtk3SXK\n"\
-    "VibZkfgtS2Jfe8EK9LMLccmP4L+92Mhfztjt91fJEJOnJhNmSnvQ+XlRFohvUds3\n"\
-    "W4W1FC+plbn3XKr4//p/EGc1lfSMc2+NksFc0rCItZsqSImPo4hn8AQGrKEuKRs8\n"\
-    "08sRwfyVJ+pLLOOu7hQPf9vdQHuErr1rK5wzhoW30l+XuuGHeHuea3osfhAKSUFF\n"\
-    "y0FY6CovM6LyeXonWBw0+hcGumWRiqbelRZwpOz+E7ZKg83AQOTzQBATJqb7j48t\n"\
-    "Vjo050kAvRZ344MIfCYH5DyLFjQthTLuxESqO4Mpv+I8+EdZokYY18/eFy22IuNW\n"\
-    "bc7reBoNpmJ11Y98+7OppCdXfia0FsFcLC2sDiV9e6KpJrVTUDOc5qE+SVsBLx4Q\n"\
-    "mVovBBs+3J24nwk8Gd5L9CGz8lMRzpCEdK9vf+CCNDxVee59tLpxLXWXht7+LS0L\n"\
-    "QBwyHjuwpbWZ1Ql4eqoLb1Hl5nRKeqPMVv99E8A7UfB0ShCRVeo51lWXx0Ud3nik\n"\
-    "qCXLhKklHc4ov5Jk3e/5KpbKIZxw3Gya1brNpOGWR6ES+fZ/HKyiwXozlNf7+NpY\n"\
-    "8fcl+QPpLASFn/UO5Q==\n"\
-    "-----END CERTIFICATE-----\n"
+if not SERVE_ON_LOCALHOST:
+    server_cert = (
+        "-----BEGIN CERTIFICATE-----\n"
+        "MIIGKTCCBBGgAwIBAgIUEh1Sn1zXu1nk3KVH/E4CRQep7EswDQYJKoZIhvcNAQEL\n"
+        "BQAwgaMxCzAJBgNVBAYTAk5QMRAwDgYDVQQIDAdCYWdtYXRpMRIwEAYDVQQHDAlE\n"
+        "aHVsaWtoZWwxGTAXBgNVBAoMEENvcHkgUGFzdGVycyBMdGQxEDAOBgNVBAsMB0lu\n"
+        "dGVybnMxHTAbBgNVBAMMFGVzcDMybG9jYWxzZXJ2ZXIuY29tMSIwIAYJKoZIhvcN\n"
+        "AQkBFhNub3RhdmFsaWRAZW1haWwuY29tMB4XDTIzMTEyNTIzMjUwMloXDTI0MTEy\n"
+        "NDIzMjUwMlowgaMxCzAJBgNVBAYTAk5QMRAwDgYDVQQIDAdCYWdtYXRpMRIwEAYD\n"
+        "VQQHDAlEaHVsaWtoZWwxGTAXBgNVBAoMEENvcHkgUGFzdGVycyBMdGQxEDAOBgNV\n"
+        "BAsMB0ludGVybnMxHTAbBgNVBAMMFGVzcDMybG9jYWxzZXJ2ZXIuY29tMSIwIAYJ\n"
+        "KoZIhvcNAQkBFhNub3RhdmFsaWRAZW1haWwuY29tMIICIjANBgkqhkiG9w0BAQEF\n"
+        "AAOCAg8AMIICCgKCAgEArfN5hNlndpuODdxRX0UhlsnlGY9pFBtf14AnfSavwCd3\n"
+        "gzwx0T/i7Ou/OnuPqp2QbxWZE9IRss2ayP+bblTvXfzYncvAWhi8++AOwgYeNBTq\n"
+        "yohS6gmcAO4BrHX2z2IwGOYRyrGDZp+/VyFPcdbEbDDc/x9b5IcbZKc+G8ADpxpL\n"
+        "Mio8NfNX2g2TecYS2lv3VCwWKh2C9GXbaVld2nclPXl7airWa5C9wRvuCvwAATU5\n"
+        "CyCcV7Rup7JBhxGcp6CjVjiIK8nxnwSmxH7CoT/+bimXBJhdNyroIRO2qeXGUKQe\n"
+        "WU/zDUjPKeWtrlXVpp6M9qjYUlzjJam1atBHgwAU4XfIQ3LzZ2OU9e71PjWQJ9Ue\n"
+        "/VL8pgQTRk4PMyXx6WcJ0JZYkbMTWpFLrpgO1gm0A8qpJ6nhvSWKEFt0Jmo+L0gc\n"
+        "lZWVE8VL3jNSi32UB/4yTfU306FX2pZfCwic4kuK4RX0IPQzcnbXe+p3liIrizkp\n"
+        "GQ8N5vqAGeLYyZOrO6fn9o2Byvvi0jImAe64ZjxRAt7P+mSEAalHtkeREjTEmC3W\n"
+        "Pq5E2mYlMPUGcU9aVh964yY9EvPGuhWtTW02IryOTIvGoBEBVqUAhX8sLea6AvNt\n"
+        "WhgvhfqIcB9thbMACA/pKOAcEeMzPGv8eupbiT8J7yCnBXYFjg09beU4eW/hFzkC\n"
+        "AwEAAaNTMFEwHQYDVR0OBBYEFK1upvP1QwLK4ykcWnhTkyl0JhdrMB8GA1UdIwQY\n"
+        "MBaAFK1upvP1QwLK4ykcWnhTkyl0JhdrMA8GA1UdEwEB/wQFMAMBAf8wDQYJKoZI\n"
+        "hvcNAQELBQADggIBAIPaIubLaxxn5tiiZ4Ho8daM7Y35rxummVh6tRhq/QnnzZrm\n"
+        "GXu69PMfKIRTkxvRWqog0LlqdsCuolSKJkQkgByKux2qi+0I1oPBgqYi9E0WNe3u\n"
+        "2v9lKIFMuMy2ZRSzaGwCUxyTOtnObyWfeJA/Vv4PE+WBmGaP+k0OsEbncX/DtN88\n"
+        "y4qWuI5g0FnHNYg51Y8FPXyp5b+cD04cNXUtT1XeaTMcopzduhLFZyFXU1d0i5b9\n"
+        "CoHZ6UH3VdO3rKqr4tmTMmRYNkq6LUUv0wFmdK9dx/0+giqILYAt1gktncVOJxxB\n"
+        "Czgb+kw2WkIsdiqfcSMlbH/GeEKRnCe4C/uOruUQi5lgvB8sbfeBNtcmbuOWS4f6\n"
+        "MhTZ2tcdXIepU6fooN06L+8iNg5uus/C5x0sbZcp+w3GfQve5nI2FKcVdG6MYb/k\n"
+        "a57zBUfJhnerppnhiODrpQJUnjsvqvIoavweWXJoHqDH4fhzMkZReSRa+t4+eCFT\n"
+        "gkBlngHyuPrmmfcx79NUq9X5z2Z+jO5gfl25h9aU5MT714xvVh2QgCKLn7dS9vaV\n"
+        "1Di3G/Wahbhynbef04FECOF4hwA8AcA6Auu5aPGL5Ki6wHUtNReM6x8BG2QwOIP8\n"
+        "yraUfiF7dJ6Y5emzf7z8EWidqsvy/9v+Rmk5S7DVdRAAaVt2K8oLPIg0CDSU\n"
+        "-----END CERTIFICATE-----\n"
+    )
 
+    server_key = (
+        "-----BEGIN ENCRYPTED PRIVATE KEY-----\n"
+        "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\n"
+        "DR3uPh0lqd9WNnMimJrkUg==\n"
+        "-----END ENCRYPTED PRIVATE KEY-----\n"
+    )
 
-server_key = "-----BEGIN ENCRYPTED PRIVATE KEY-----\n"\
-    "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\n"\
-    "4oKkBzLTwgfz0uOvv+KjTfgeFRXzFLkW\n"\
-    "-----END ENCRYPTED PRIVATE KEY-----\n"
-
+    SSL_PASSWORD = "esp32password"
 
 
 def sanitize_filename(filename: str) -> str:
@@ -141,6 +150,9 @@ def sanitize_filename(filename: str) -> str:
 
 
 class MyHandler(SimpleHTTPRequestHandler):
+    def do_GET(self):
+        super().do_GET()
+
     def do_POST(self):
         self.log_request()
 
@@ -340,15 +352,18 @@ def display_image_and_wait(img: np.ndarray, img_name: str):
 
 def initialize_for_ota():
     os.chdir(ota_folder.resolve())
-    (cert_file, key_file) = setup_certificate_and_key(ota_folder)
-    ssl_ctx = ssl.SSLContext(protocol=ssl.PROTOCOL_TLS_SERVER)
-    ssl_ctx.load_cert_chain(certfile=cert_file, keyfile=key_file)
+    if not SERVE_ON_LOCALHOST:
+        (cert_file, key_file) = setup_certificate_and_key(ota_folder)
+        ssl_ctx = ssl.SSLContext(protocol=ssl.PROTOCOL_TLS_SERVER)
+        ssl_ctx.load_cert_chain(
+            certfile=cert_file, keyfile=key_file, password=SSL_PASSWORD
+        )
 
-    if httpd is None:
-        print("Http daemon hasn't been initialized")
-        return
+        if httpd is None:
+            print("Http daemon hasn't been initialized")
+            return
 
-    httpd.socket = ssl_ctx.wrap_socket(httpd.socket, server_side=True)
+        httpd.socket = ssl_ctx.wrap_socket(httpd.socket, server_side=True)
 
 
 def setup_certificate_and_key(ota_img_dir):
@@ -386,14 +401,18 @@ if __name__ == "__main__":
     Log the local ip.
     """
 
-    address = get_ip()
+    if SERVE_ON_LOCALHOST:
+        address = "localhost"
+    else:
+        address = get_ip()
     port = 8000
     header_filename = "globals.h"
 
-    # replacing the address in globals.h
-    set_server_address(
-        include_folder.joinpath(header_filename).resolve(), f"{address}:{port}"
-    )
+    if not SERVE_ON_LOCALHOST:
+        # replacing the address in globals.h
+        set_server_address(
+            include_folder.joinpath(header_filename).resolve(), f"{address}:{port}"
+        )
 
     other_thread = Thread(target=start_server, args=(address, port))
     other_thread.daemon = True
@@ -401,8 +420,8 @@ if __name__ == "__main__":
     try:
         while True:
             time.sleep(1)
-    except KeyboardInterrupt as ki:
+    except KeyboardInterrupt:
         if httpd is not None:
             httpd.shutdown()
-        print("Exiting because of KeyboardInterrupt: " + str(ki))
+        print("Exiting because of KeyboardInterrupt:")
         cv2.destroyAllWindows()

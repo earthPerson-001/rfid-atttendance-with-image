@@ -6,3 +6,7 @@ build
 .vscode/ipch
 .vscode/extensions.json
 .vscode/settings.json
+
+# ota stuffs
+mock_server/http_server_root/firmware.bin
+mock_server/http_server_root/server_key.bin
