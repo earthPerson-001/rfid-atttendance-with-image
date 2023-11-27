@@ -10,11 +10,14 @@
 
 //
 
-static const char *OTA_UPGRADE_FIRMWARE_URL = "http://" SERVER_ADDRESS "/firmware.bin";
-
+#if USE_CA_CERTIFICATE_BUNDLE
+#include "esp_crt_bundle.h"
+#else
 extern const uint8_t server_cert_pem_start[] asm("_binary_ca_cert_pem_start");
 extern const uint8_t server_cert_pem_end[] asm("_binary_ca_cert_pem_end");
+#endif
 
+static const char *OTA_UPGRADE_FIRMWARE_URL = "https://" SERVER_ADDRESS "/firmware.bin";
 
 /* Event handler for catching system events */
 static esp_err_t ota_http_event_handler(esp_http_client_event_t *evt)
@@ -55,9 +58,14 @@ void simple_ota_example_task(void *pvParameter)
 
     esp_http_client_config_t config = {
         .url = OTA_UPGRADE_FIRMWARE_URL,
+#if USE_CA_CERTIFICATE_BUNDLE
+        .crt_bundle_attach = esp_crt_bundle_attach,
+#else
         .cert_pem = (char *)server_cert_pem_start,
+#endif /* USE_CA_CERTIFICATE_BUNDLE */
         .event_handler = ota_http_event_handler,
         .keep_alive_enable = true,
+        .common_name = "esp32localserver.com",
     };
 
     esp_https_ota_config_t ota_config = {

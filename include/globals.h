@@ -42,6 +42,11 @@ extern "C"
 // full filepath of image
 #define IMAGE_FILEPATH_LENGTH 50
 
+// for providing ota via publicly accessible servers
+// 1 -> bundle certificate and use that
+// 0 -> use the provided certificate
+#define USE_CA_CERTIFICATE_BUNDLE 0
+
 /*
  * SPI for sdcard of esp32-cam and rc522
  */
