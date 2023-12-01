@@ -134,7 +134,8 @@ static esp_err_t _http_event_handler(esp_http_client_event_t *evt)
 
 esp_err_t send_crlf(esp_http_client_handle_t client)
 {
-    if ( -1 == esp_http_client_write(client, "\r\n", 2) ) {
+    if (-1 == esp_http_client_write(client, "\r\n", 2))
+    {
         return ESP_FAIL;
     }
 
@@ -173,7 +174,7 @@ void upload_jpeg_task(void *args)
 
     // Declare local_response_buffer with size (MAX_HTTP_OUTPUT_BUFFER + 1) to prevent out of bound access when
     // it is used by functions like strlen(). The buffer should only be used upto size MAX_HTTP_OUTPUT_BUFFER
-    char local_response_buffer[MAX_HTTP_OUTPUT_BUFFER + 1];
+    char *local_response_buffer = calloc(sizeof(char), MAX_HTTP_OUTPUT_BUFFER + 1);
 
     char *header = calloc(HTTP_POST_REQUEST_HEADER_SIZE + 1, sizeof(char));
     char *body = calloc(HTTP_POST_REQUEST_BODY_SIZE + 1, sizeof(char));
@@ -204,8 +205,15 @@ void upload_jpeg_task(void *args)
          * If URL as well as host and path parameters are specified, values of host and path will be considered.
          */
         esp_http_client_config_t config = {
-            .url = "http://" SERVER_ADDRESS "/post",
+            .url = "https://" SERVER_ADDRESS "/post",
             .method = HTTP_METHOD_POST,
+#if USE_CA_CERTIFICATE_BUNDLE
+            .crt_bundle_attach = esp_crt_bundle_attach,
+#else
+            .cert_pem = (char *)server_cert_pem_start,
+#endif /* USE_CA_CERTIFICATE_BUNDLE */
+            .common_name = SERVER_COMMON_NAME,
+
             .event_handler = _http_event_handler,
             .user_data = local_response_buffer, // Pass address of local buffer to get response
             .disable_auto_redirect = true,
@@ -281,14 +289,14 @@ void upload_jpeg_task(void *args)
 
         // end
         esp_http_client_write(client, "0\r\n", 3);
-        err = send_crlf(client);  // send \r\n
+        err = send_crlf(client); // send \r\n
         // // converting fb_len to string
         // char fb_len_str[(size_t)((ceil(log10(fb_len)) + 1) * sizeof(char))];
         // sprintf(fb_len_str, "%zu", fb_len);
 
         // esp_http_client_set_header(client, "Content-Length", fb_len_str);
         // err = esp_http_client_perform(client);
-        
+
         if (err == ESP_OK)
         {
             ESP_LOGI(TAG, "HTTP POST Status = %d, content_length = %" PRId64,
@@ -314,5 +322,6 @@ void upload_jpeg_task(void *args)
     free(header);
     free(body);
     free(temp_buffer);
+    free(local_response_buffer);
     vTaskDelete(NULL);
 }

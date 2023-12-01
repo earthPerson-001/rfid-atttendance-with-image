@@ -8,5 +8,5 @@ build
 .vscode/settings.json
 
 # ota stuffs
-mock_server/http_server_root/firmware.bin
-mock_server/http_server_root/server_key.bin
+mock_server/http_server_root/server_key.pem
+mock_server/http_server_root/esp*

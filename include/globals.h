@@ -22,7 +22,7 @@ extern "C"
 
 // for http client
 #define MAX_HTTP_RECV_BUFFER 512
-#define MAX_HTTP_OUTPUT_BUFFER 1024  // since only post request is needed
+#define MAX_HTTP_OUTPUT_BUFFER 1024 // since only post request is needed
 
 // stack sizes of tasks
 #define TASK_CAMERA_FEED_STACK_SIZE 2048
@@ -42,10 +42,19 @@ extern "C"
 // full filepath of image
 #define IMAGE_FILEPATH_LENGTH 50
 
+#define SERVER_COMMON_NAME "esp32localserver.com" // To avoid CN error in https for self signed certificates
+
 // for providing ota via publicly accessible servers
 // 1 -> bundle certificate and use that
 // 0 -> use the provided certificate
 #define USE_CA_CERTIFICATE_BUNDLE 0
+
+#if USE_CA_CERTIFICATE_BUNDLE
+#include "esp_crt_bundle.h"
+#else
+extern const uint8_t server_cert_pem_start[] asm("_binary_ca_cert_pem_start");
+extern const uint8_t server_cert_pem_end[] asm("_binary_ca_cert_pem_end");
+#endif
 
 /*
  * SPI for sdcard of esp32-cam and rc522
