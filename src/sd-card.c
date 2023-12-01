@@ -229,10 +229,13 @@ esp_err_t save_image_to_sdcard(uint8_t *image_buffer, uint64_t rfid_serial_numbe
         tok = strtok(full_img_filepath, "_");
         while (tok != 0)
         {
-            // assuming the last value is <time_us>.jpg and taking the first slice
-            timestamp_us = strtok(tok, "."); // since this needs to be serialized again, there is no point in converting back to int64_t
+            timestamp_us = tok; 
             tok = strtok(NULL, "_");
         }
+
+        // since this needs to be serialized again, there is no point in converting back to int64_t
+        // assuming the last value is <time_us>.jpg and taking the first slice
+        timestamp_us = strtok(timestamp_us, "."); 
 
         // log to file for uploading later
         const char *remaining_upload_file = get_remaining_upload_file();
