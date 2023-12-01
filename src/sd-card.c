@@ -22,6 +22,8 @@
 
 #define MOUNT_POINT "/sdcard"
 #define IMAGES_FOLDER "images"
+#define REMAINING_UPLOAD_FILE "remaining_upload.csv"
+#define REMAINING_UPLOAD_FILE_LINE_WIDTH 100
 
 esp_err_t init_sd_card(sdmmc_card_t **out)
 {
@@ -123,15 +125,16 @@ esp_err_t get_new_image_filepath(uint64_t img_identifier, char *extension, char 
 }
 
 /**
- * Creates the /sdcard/images directory is it doesn't exists
+ * Creates the /sdcard/images directory if it doesn't exists
  * returns the images folder path.
  *
  */
 char *get_images_folder()
 {
+    // since this is a string literal, it's lifetime is static
     char *images_folder = MOUNT_POINT "/" IMAGES_FOLDER;
 
-    // checking if file exists
+    // checking if folder exists
     if (0 != access(images_folder, F_OK))
     {
         int mk_ret = mkdir(images_folder, 0775);
@@ -143,10 +146,51 @@ char *get_images_folder()
     return images_folder;
 }
 
-esp_err_t write_to_file_path(const char *path, const char *data)
+/**
+ * Creates the /sdcard/remaining_upload.csv file if it doesn't exists
+ * returns the remaining_upload.csv path
+ *
+ */
+char *get_remaining_upload_file()
 {
+    // since this is a string literal, it's lifetime is static
+    char *remaining_upload_file = MOUNT_POINT "/" REMAINING_UPLOAD_FILE;
+
+    // checking if the file exists
+    if (0 != access(remaining_upload_file, F_OK))
+    {
+        FILE *fp = fopen(remaining_upload_file, "w+");
+
+        if (fp == NULL)
+        {
+            ESP_LOGE(TAG, "Couldn't open file %s", remaining_upload_file);
+            return NULL;
+        }
+
+        char *a_line = calloc(sizeof(char), REMAINING_UPLOAD_FILE_LINE_WIDTH);
+        ESP_LOGI(TAG, "The previous content of %s", remaining_upload_file);
+        // displaying the content of the csv file
+        while (fgets(a_line, REMAINING_UPLOAD_FILE_LINE_WIDTH, fp))
+        {
+            ESP_LOGI(TAG, "%s", a_line);
+        }
+
+        free(a_line);
+        fclose(fp);
+    }
+
+    return remaining_upload_file;
+}
+
+esp_err_t write_to_file_path(const char *path, const char *data, char *mode)
+{
+    if (mode == NULL)
+    {
+        mode = "w";
+    }
+
     ESP_LOGI(TAG, "Opening file %s", path);
-    FILE *f = fopen(path, "w");
+    FILE *f = fopen(path, mode);
     if (f == NULL)
     {
         ESP_LOGE(TAG, "Failed to open file for writing");
@@ -159,7 +203,7 @@ esp_err_t write_to_file_path(const char *path, const char *data)
     return ESP_OK;
 }
 
-esp_err_t save_image_to_sdcard(uint8_t *image_buffer, int64_t rfid_serial_number)
+esp_err_t save_image_to_sdcard(uint8_t *image_buffer, uint64_t rfid_serial_number)
 {
     // create filename combining the rfid_tag and current timestamp
     char full_img_filepath[IMAGE_FILEPATH_LENGTH];
@@ -174,9 +218,36 @@ esp_err_t save_image_to_sdcard(uint8_t *image_buffer, int64_t rfid_serial_number
 
     esp_err_t ret = ESP_OK;
     // else we can write the new image
-    if (ESP_OK == (ret = write_to_file_path(full_img_filepath, (char *)image_buffer)))
+    if (ESP_OK == (ret = write_to_file_path(full_img_filepath, (char *)image_buffer, "w")))
     {
         ESP_LOGI(TAG, "Successfully saved image %s.", full_img_filepath);
+
+        // getting the timestamp
+        // full_img_filepath is in the form : /sdcard/images/<rfid_tag>_<time_us>.jpg
+        char *tok;
+        char *timestamp_us;
+        tok = strtok(full_img_filepath, "_");
+        while (tok != 0)
+        {
+            // assuming the last value is <time_us>.jpg and taking the first slice
+            timestamp_us = strtok(tok, "."); // since this needs to be serialized again, there is no point in converting back to int64_t
+            tok = strtok(NULL, "_");
+        }
+
+        // log to file for uploading later
+        const char *remaining_upload_file = get_remaining_upload_file();
+
+        // creating a buffer to write a line at once
+        char *line_buf = calloc(sizeof(char), REMAINING_UPLOAD_FILE_LINE_WIDTH);
+
+        // the csv file will be in the form of: timestamp_us,rfid_serial_number,image_path
+        sprintf(line_buf, timestamp_us);
+        strcat(line_buf, ",");
+        stract(line_buf, "%" PRIu64 ",%s\n", rfid_serial_number, full_img_filepath);
+        write_to_file_path(remaining_upload_file, line_buf, "w+");
+        ESP_LOGI(TAG, "Wrote %s to %s", line_buf, remaining_upload_file);
+
+        free(line_buf);
     }
 
     return ret;
