@@ -10,6 +10,7 @@ extern "C"
  */
 #define USE_ESP32CAM 1
 #define USE_RC522 0
+#define USE_SDCARD 0
 
     static const char *TAG = "RFID Based Attendance System";
 
@@ -37,7 +38,7 @@ extern "C"
 // upload jpeg related
 #define PING_COUNT 4
 #define PING_TARGET "www.espressif.com"
-#define SERVER_ADDRESS "192.168.1.107:8000" //testing locally 
+#define SERVER_ADDRESS "192.168.1.112:8000" //testing locally 
 
 // full filepath of image
 #define IMAGE_FILEPATH_LENGTH 50
