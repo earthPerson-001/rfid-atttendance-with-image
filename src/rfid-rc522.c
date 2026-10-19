@@ -44,7 +44,7 @@ esp_err_t initialize_rc522(rc522_handle_t *out)
 #if defined CONFIG_IDF_TARGET_ESP32 || CONFIG_IDF_TARGET_ESP32S2
         .spi.host = HSPI_HOST,
 #else
-        .spi.host = SPI2_HOST
+        .spi.host = SPI2_HOST,
 #endif
         .spi.miso_gpio = RC522_MISO,
         .spi.mosi_gpio = RC522_MOSI,
