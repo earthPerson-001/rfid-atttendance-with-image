@@ -1,21 +1,134 @@
-from http.server import HTTPServer, BaseHTTPRequestHandler
-import socket
-import numpy as np
-import cv2
 import fileinput
-import sys
-from pathlib import Path
+import os
 import re
+import socket
+import ssl
+import sys
+import time
 import uuid
+from http.server import HTTPServer, SimpleHTTPRequestHandler
+from pathlib import Path
+from threading import Thread
+
+import cv2
+import numpy as np
 
 LOG_RECEIVED_DATA = False
+# don't expose to LAN and setup for http connection instead of https
+# this is done to use some other services like ngrok to expose it as https
+# and self signing certificates causes problem with FQDN(Fully Qualified Domain Name) or CN(Common Name)
+SERVE_ON_LOCALHOST = False
 
 module_path = Path(__file__).resolve()
 include_folder = module_path.parents[1].joinpath(
     "include"
 )  # the include folder of workspace
+ota_folder = module_path.parents[0].joinpath("http_server_root")
+
+# keeping a http daemon instance for closing
+httpd = None
+
 print(f"Module path: {module_path}")
 print(f"Include folder: {include_folder.resolve()}")
+print(f"Ota Folder: {ota_folder.resolve()}")
+
+if not SERVE_ON_LOCALHOST:
+    server_cert = (
+        "-----BEGIN CERTIFICATE-----\n"
+        "MIIGKTCCBBGgAwIBAgIUEh1Sn1zXu1nk3KVH/E4CRQep7EswDQYJKoZIhvcNAQEL\n"
+        "BQAwgaMxCzAJBgNVBAYTAk5QMRAwDgYDVQQIDAdCYWdtYXRpMRIwEAYDVQQHDAlE\n"
+        "aHVsaWtoZWwxGTAXBgNVBAoMEENvcHkgUGFzdGVycyBMdGQxEDAOBgNVBAsMB0lu\n"
+        "dGVybnMxHTAbBgNVBAMMFGVzcDMybG9jYWxzZXJ2ZXIuY29tMSIwIAYJKoZIhvcN\n"
+        "AQkBFhNub3RhdmFsaWRAZW1haWwuY29tMB4XDTIzMTEyNTIzMjUwMloXDTI0MTEy\n"
+        "NDIzMjUwMlowgaMxCzAJBgNVBAYTAk5QMRAwDgYDVQQIDAdCYWdtYXRpMRIwEAYD\n"
+        "VQQHDAlEaHVsaWtoZWwxGTAXBgNVBAoMEENvcHkgUGFzdGVycyBMdGQxEDAOBgNV\n"
+        "BAsMB0ludGVybnMxHTAbBgNVBAMMFGVzcDMybG9jYWxzZXJ2ZXIuY29tMSIwIAYJ\n"
+        "KoZIhvcNAQkBFhNub3RhdmFsaWRAZW1haWwuY29tMIICIjANBgkqhkiG9w0BAQEF\n"
+        "AAOCAg8AMIICCgKCAgEArfN5hNlndpuODdxRX0UhlsnlGY9pFBtf14AnfSavwCd3\n"
+        "gzwx0T/i7Ou/OnuPqp2QbxWZE9IRss2ayP+bblTvXfzYncvAWhi8++AOwgYeNBTq\n"
+        "yohS6gmcAO4BrHX2z2IwGOYRyrGDZp+/VyFPcdbEbDDc/x9b5IcbZKc+G8ADpxpL\n"
+        "Mio8NfNX2g2TecYS2lv3VCwWKh2C9GXbaVld2nclPXl7airWa5C9wRvuCvwAATU5\n"
+        "CyCcV7Rup7JBhxGcp6CjVjiIK8nxnwSmxH7CoT/+bimXBJhdNyroIRO2qeXGUKQe\n"
+        "WU/zDUjPKeWtrlXVpp6M9qjYUlzjJam1atBHgwAU4XfIQ3LzZ2OU9e71PjWQJ9Ue\n"
+        "/VL8pgQTRk4PMyXx6WcJ0JZYkbMTWpFLrpgO1gm0A8qpJ6nhvSWKEFt0Jmo+L0gc\n"
+        "lZWVE8VL3jNSi32UB/4yTfU306FX2pZfCwic4kuK4RX0IPQzcnbXe+p3liIrizkp\n"
+        "GQ8N5vqAGeLYyZOrO6fn9o2Byvvi0jImAe64ZjxRAt7P+mSEAalHtkeREjTEmC3W\n"
+        "Pq5E2mYlMPUGcU9aVh964yY9EvPGuhWtTW02IryOTIvGoBEBVqUAhX8sLea6AvNt\n"
+        "WhgvhfqIcB9thbMACA/pKOAcEeMzPGv8eupbiT8J7yCnBXYFjg09beU4eW/hFzkC\n"
+        "AwEAAaNTMFEwHQYDVR0OBBYEFK1upvP1QwLK4ykcWnhTkyl0JhdrMB8GA1UdIwQY\n"
+        "MBaAFK1upvP1QwLK4ykcWnhTkyl0JhdrMA8GA1UdEwEB/wQFMAMBAf8wDQYJKoZI\n"
+        "hvcNAQELBQADggIBAIPaIubLaxxn5tiiZ4Ho8daM7Y35rxummVh6tRhq/QnnzZrm\n"
+        "GXu69PMfKIRTkxvRWqog0LlqdsCuolSKJkQkgByKux2qi+0I1oPBgqYi9E0WNe3u\n"
+        "2v9lKIFMuMy2ZRSzaGwCUxyTOtnObyWfeJA/Vv4PE+WBmGaP+k0OsEbncX/DtN88\n"
+        "y4qWuI5g0FnHNYg51Y8FPXyp5b+cD04cNXUtT1XeaTMcopzduhLFZyFXU1d0i5b9\n"
+        "CoHZ6UH3VdO3rKqr4tmTMmRYNkq6LUUv0wFmdK9dx/0+giqILYAt1gktncVOJxxB\n"
+        "Czgb+kw2WkIsdiqfcSMlbH/GeEKRnCe4C/uOruUQi5lgvB8sbfeBNtcmbuOWS4f6\n"
+        "MhTZ2tcdXIepU6fooN06L+8iNg5uus/C5x0sbZcp+w3GfQve5nI2FKcVdG6MYb/k\n"
+        "a57zBUfJhnerppnhiODrpQJUnjsvqvIoavweWXJoHqDH4fhzMkZReSRa+t4+eCFT\n"
+        "gkBlngHyuPrmmfcx79NUq9X5z2Z+jO5gfl25h9aU5MT714xvVh2QgCKLn7dS9vaV\n"
+        "1Di3G/Wahbhynbef04FECOF4hwA8AcA6Auu5aPGL5Ki6wHUtNReM6x8BG2QwOIP8\n"
+        "yraUfiF7dJ6Y5emzf7z8EWidqsvy/9v+Rmk5S7DVdRAAaVt2K8oLPIg0CDSU\n"
+        "-----END CERTIFICATE-----\n"
+    )
+
+    server_key = (
+        "-----BEGIN ENCRYPTED PRIVATE KEY-----\n"
+        "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\n"
+        "DR3uPh0lqd9WNnMimJrkUg==\n"
+        "-----END ENCRYPTED PRIVATE KEY-----\n"
+    )
+
+    SSL_PASSWORD = "esp32password"
 
 
 def sanitize_filename(filename: str) -> str:
@@ -36,17 +149,9 @@ def sanitize_filename(filename: str) -> str:
     return filename if name else f"file_{uuid.uuid4().hex}{extension}"
 
 
-class MyHandler(BaseHTTPRequestHandler):
+class MyHandler(SimpleHTTPRequestHandler):
     def do_GET(self):
-        self.log_request()
-        # send 200 response
-        self.send_response(200)
-        # add our own custom header
-        self.send_header("mock_header_key", "mock_header_value")
-        # send response headers
-        self.end_headers()
-        # send the body of the response
-        self.wfile.write(bytes("Hello to Esp32 from server.", "utf-8"))
+        super().do_GET()
 
     def do_POST(self):
         self.log_request()
@@ -245,23 +350,78 @@ def display_image_and_wait(img: np.ndarray, img_name: str):
             break
 
 
+def initialize_for_ota():
+    os.chdir(ota_folder.resolve())
+    if not SERVE_ON_LOCALHOST:
+        (cert_file, key_file) = setup_certificate_and_key(ota_folder)
+        ssl_ctx = ssl.SSLContext(protocol=ssl.PROTOCOL_TLS_SERVER)
+        ssl_ctx.load_cert_chain(
+            certfile=cert_file, keyfile=key_file, password=SSL_PASSWORD
+        )
+
+        if httpd is None:
+            print("Http daemon hasn't been initialized")
+            return
+
+        httpd.socket = ssl_ctx.wrap_socket(httpd.socket, server_side=True)
+
+
+def setup_certificate_and_key(ota_img_dir):
+    """
+    Returns
+    -------
+    (server_cert_file, server_key_file)
+
+    """
+    cert_file = os.path.join(ota_img_dir, "server_cert.pem")
+    with open(cert_file, "w+") as sf:
+        sf.write(server_cert)
+
+    key_file = os.path.join(ota_img_dir, "server_key.pem")
+    with open(key_file, "w+") as kf:
+        kf.write(server_key)
+
+    return (cert_file, key_file)
+
+
+def start_server(address: str = "0.0.0.0", port: int = 8000):
+    global httpd
+
+    print(f"Opening http server on {address}:{port}")
+    print(f"Setting up ota dir on {ota_folder.resolve()}")
+    httpd = HTTPServer((address, port), MyHandler)
+    initialize_for_ota()
+    print(f"Serving Forever. Press Ctrl + C inorder to exit.")
+    httpd.serve_forever()
+
+
 if __name__ == "__main__":
     """
     Opening on 0.0.0.0 and make it accessible across the local network.
     Log the local ip.
     """
 
-    address = get_ip()
+    if SERVE_ON_LOCALHOST:
+        address = "localhost"
+    else:
+        address = get_ip()
     port = 8000
     header_filename = "globals.h"
 
-    # replacing the address in globals.h
-    set_server_address(
-        include_folder.joinpath(header_filename).resolve(), f"{address}:{port}"
-    )
-    print(f"Opening http server on {address}:{port}")
-    httpd = HTTPServer(("0.0.0.0", port), MyHandler)
-    httpd.serve_forever()
+    if not SERVE_ON_LOCALHOST:
+        # replacing the address in globals.h
+        set_server_address(
+            include_folder.joinpath(header_filename).resolve(), f"{address}:{port}"
+        )
 
-    # cleanup
-    cv2.destroyAllWindows()
+    other_thread = Thread(target=start_server, args=(address, port))
+    other_thread.daemon = True
+    other_thread.start()
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        if httpd is not None:
+            httpd.shutdown()
+        print("Exiting because of KeyboardInterrupt:")
+        cv2.destroyAllWindows()
