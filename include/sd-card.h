@@ -15,7 +15,7 @@ extern "C"
 
     char *get_images_folder();
 
-    esp_err_t save_image_to_sdcard(uint8_t *image_buffer, int64_t rfid_serial_number);
+    esp_err_t save_image_to_sdcard(uint8_t *image_buffer, uint64_t rfid_serial_number);
 
 #ifdef __cplusplus
 }

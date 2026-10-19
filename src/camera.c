@@ -34,7 +34,7 @@ rc522_tag_t *current_tag = NULL;
 #define PING_FAILED_BIT BIT1
 
 // function declaration
-void initialize_and_start_ping(rfid_a_s_event_data_t *rfid_a_s_data);
+void initialize_and_start_ping(const rfid_a_s_event_data_t *rfid_a_s_data);
 
 static camera_config_t camera_config = {
     .pin_pwdn = CAM_PIN_PWDN,
@@ -254,7 +254,7 @@ static void on_ping_timeout(esp_ping_handle_t hdl, void *args)
         assert(rfid_a_s_data->fb != NULL);
 
         // save the frame buffer to the file path
-        sdmmc_card_t *card = rfid_a_s_data->card;
+        const sdmmc_card_t *card = rfid_a_s_data->card;
         if (card == NULL)
         {
             ESP_LOGE(TAG, "Couldn't save to sdcard as it wasn't initialized");
@@ -291,7 +291,7 @@ static void on_ping_end(esp_ping_handle_t hdl, void *args)
     // the image should already have been uploaded if there was a success
 }
 
-void initialize_and_start_ping(rfid_a_s_event_data_t *rfid_a_s_data)
+void initialize_and_start_ping(const rfid_a_s_event_data_t *rfid_a_s_data)
 {
     /* convert URL to IP address */
     ip_addr_t target_addr;
@@ -322,7 +322,7 @@ void initialize_and_start_ping(rfid_a_s_event_data_t *rfid_a_s_data)
     esp_err_t ret = ESP_OK;
     if (ESP_OK != (ret = esp_ping_new_session(&ping_config, &cbs, &ping)))
     {
-        ESP_LOGI(TAG, "Pinging " PING_TARGET " failed");
+        ESP_LOGI(TAG, "Pinging " PING_TARGET " failed with error %s", esp_err_to_name(ret));
     }
     else
     {
@@ -332,7 +332,7 @@ void initialize_and_start_ping(rfid_a_s_event_data_t *rfid_a_s_data)
         }
         else
         {
-            ESP_LOGE(TAG, "Couldn't start the ping session to ping " PING_TARGET);
+            ESP_LOGE(TAG, "Couldn't start the ping session to ping " PING_TARGET "Error: (%s)", esp_err_to_name(ret));
         }
     }
 }
